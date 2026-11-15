@@ -108,6 +108,7 @@ void settings_defaults(Settings *s) {
     s->confirm_close = 1;
     s->smooth_scroll = 1;
     s->status_clock = 1;
+    s->win_x = s->win_y = s->win_w = s->win_h = -1;
     strcpy(s->highlights,
            "ERROR=>#FF6B68;WARN=>#E5C07B;FAILED=>#FF6B68;"
            "SUCCESS=>#98C379;拒绝访问=>#FF6B68;Permission denied=>#FF6B68");
@@ -162,6 +163,10 @@ static void settings_to_json(JVal *o, Settings *s) {
     json_set_int(o, "smooth_scroll", s->smooth_scroll);
     json_set_int(o, "status_clock", s->status_clock);
     json_set_str(o, "highlights", s->highlights);
+    json_set_int(o, "win_x", s->win_x);
+    json_set_int(o, "win_y", s->win_y);
+    json_set_int(o, "win_w", s->win_w);
+    json_set_int(o, "win_h", s->win_h);
 }
 
 static void json_to_settings(JVal *o, Settings *s) {
@@ -209,6 +214,10 @@ static void json_to_settings(JVal *o, Settings *s) {
     s->confirm_close = json_int(o, "confirm_close", s->confirm_close);
     s->smooth_scroll = json_int(o, "smooth_scroll", s->smooth_scroll);
     s->status_clock = json_int(o, "status_clock", s->status_clock);
+    s->win_x = json_int(o, "win_x", -1);
+    s->win_y = json_int(o, "win_y", -1);
+    s->win_w = json_int(o, "win_w", -1);
+    s->win_h = json_int(o, "win_h", -1);
     const char *hl = json_str(o, "highlights", NULL);
     if (hl) {
         strncpy(s->highlights, hl, sizeof(s->highlights) - 1);

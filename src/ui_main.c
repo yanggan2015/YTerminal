@@ -305,6 +305,17 @@ static LRESULT CALLBACK MainProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_CLOSE:
         if (g_app.closing) return 0;
         g_app.closing = 1;
+        {
+            WINDOWPLACEMENT wp;
+            wp.length = sizeof(wp);
+            if (GetWindowPlacement(h, &wp) && wp.showCmd != SW_SHOWMINIMIZED) {
+                RECT r = wp.rcNormalPosition;
+                g_app.set.win_x = r.left;
+                g_app.set.win_y = r.top;
+                g_app.set.win_w = r.right - r.left;
+                g_app.set.win_h = r.bottom - r.top;
+            }
+        }
         app_shutdown();
         DestroyWindow(h);
         return 0;
@@ -336,7 +347,24 @@ HWND main_window_create(HINSTANCE inst) {
     if (h < 640) h = 640;
     if (w > avail_w) w = avail_w;
     if (h > avail_h) h = avail_h;
+    int x = wa.left + (avail_w - w) / 2;
+    int y = wa.top + (avail_h - h) / 2;
+    /* 恢复上次窗口位置与尺寸（越界时回退到居中） */
+    if (g_app.set.win_w >= 800 && g_app.set.win_h >= 520) {
+        w = g_app.set.win_w;
+        h = g_app.set.win_h;
+        x = g_app.set.win_x;
+        y = g_app.set.win_y;
+        if (w > avail_w) w = avail_w;
+        if (h > avail_h) h = avail_h;
+        if (x < wa.left - 80) x = wa.left;
+        if (y < wa.top - 20) y = wa.top;
+        if (x > wa.right - 200) x = wa.right - 200;
+        if (y > wa.bottom - 120) y = wa.bottom - 120;
+        if (x + w > wa.right) x = wa.right - w;
+        if (y + h > wa.bottom) y = wa.bottom - h;
+    }
     HWND mw = CreateWindowExW(0, L"YTerminalMain", L"YTerminal — 全能终端", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-                              wa.left + (avail_w - w) / 2, wa.top + (avail_h - h) / 2, w, h, NULL, NULL, inst, NULL);
+                              x, y, w, h, NULL, NULL, inst, NULL);
     return mw;
 }

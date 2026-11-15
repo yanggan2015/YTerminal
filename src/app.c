@@ -342,6 +342,13 @@ void app_update_tab_title(HWND view) { if (g_app.tabbar) tabbar_refresh(g_app.ta
 
 void app_close_other_tabs(void) {
     if (g_app.tab_count <= 1) return;
+    if (g_app.set.confirm_close && g_app.tab_count > 3) {
+        wchar_t msg[160];
+        _snwprintf(msg, 160, L"将关闭其他 %d 个标签，其中有正在运行的会话。\n确定继续吗？",
+                   g_app.tab_count - 1);
+        msg[159] = 0;
+        if (MessageBoxW(g_app.main, msg, L"关闭其他标签", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+    }
     int keep = g_app.active_tab;
     for (int i = g_app.tab_count - 1; i >= 0; i--) {
         if (i == keep) continue;
@@ -354,6 +361,14 @@ void app_close_other_tabs(void) {
 }
 
 void app_close_tabs_right(void) {
+    int n = g_app.tab_count - g_app.active_tab - 1;
+    if (n <= 0) return;
+    if (g_app.set.confirm_close && n > 2) {
+        wchar_t msg[160];
+        _snwprintf(msg, 160, L"将关闭右侧 %d 个标签。\n确定继续吗？", n);
+        msg[159] = 0;
+        if (MessageBoxW(g_app.main, msg, L"关闭右侧标签", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+    }
     for (int i = g_app.tab_count - 1; i > g_app.active_tab; i--) app_close_tab(i);
     app_layout_content();
     if (g_app.tabbar) tabbar_refresh(g_app.tabbar);

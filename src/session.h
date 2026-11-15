@@ -96,6 +96,7 @@ typedef struct {
     int smooth_scroll;
     int status_clock;
     char highlights[512];  /* 高亮规则：文本=>#RRGGBB，分号/换行分隔 */
+    int win_x, win_y, win_w, win_h;  /* 上次窗口位置尺寸，-1 表示未保存 */
 } Settings;
 
 /* ---- 数据目录 ---- */
