@@ -96,7 +96,15 @@ static LRESULT CALLBACK SplitProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     case WM_LBUTTONUP:
-        if (sp->drag) { sp->drag = 0; ReleaseCapture(); InvalidateRect(h, NULL, FALSE); }
+        if (sp->drag) {
+            sp->drag = 0;
+            ReleaseCapture();
+            InvalidateRect(h, NULL, FALSE);
+            /* 记住分屏比例，下次打开沿用 */
+            if (sp->vertical) g_app.set.split_v_pct = (int)(sp->ratio * 100);
+            else g_app.set.split_h_pct = (int)(sp->ratio * 100);
+            settings_save(&g_app.set);
+        }
         return 0;
     case WM_DESTROY: free(sp); return 0;
     }
@@ -117,7 +125,10 @@ HWND split_create(HWND parent, HWND a, HWND b, int vertical) {
         cls_ok = 1;
     }
     Split *sp = (Split *)xcalloc(1, sizeof(Split));
-    sp->a = a; sp->b = b; sp->vertical = vertical; sp->ratio = 0.5f;
+    sp->a = a; sp->b = b; sp->vertical = vertical;
+    int pct = vertical ? g_app.set.split_v_pct : g_app.set.split_h_pct;
+    if (pct < 12 || pct > 88) pct = 50;
+    sp->ratio = (float)pct / 100.0f;
     HWND h = CreateWindowExW(0, L"YSplit", L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
                              0, 0, 400, 300, parent, NULL, g_app.inst, sp);
     if (!h) { free(sp); return NULL; }

@@ -72,7 +72,7 @@ if ($Command -ne 0) {
         $r = New-Object YShot+RECT
         [YShot]::GetWindowRect($h, [ref]$r) | Out-Null
         $w = $r.Right - $r.Left
-        if ($w -ge 400 -and $w -lt 1500) { $target = $h }
+        if ($w -ge 400 -and $w -lt 2000) { $target = $h }
     }
     if ($target -ne [IntPtr]::Zero) {
         $sz = [YShot]::Save($target, (Join-Path $resolvedOut $ShotName))

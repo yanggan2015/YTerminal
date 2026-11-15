@@ -6,7 +6,7 @@ $build = Join-Path $root 'build'
 if (-not (Test-Path -LiteralPath $build)) { New-Item -ItemType Directory -Path $build | Out-Null }
 
 $cc = 'gcc'
-$cflags = @('-c','-O2','-Wall','-Wextra','-Wno-unused-parameter','-Wno-cast-function-type','-Wno-stringop-truncation','-D_WIN32_WINNT=0x0A00','-DWIN32_LEAN_AND_MEAN')
+$cflags = @('-c','-O2','-Wall','-Wextra','-Wno-unused-parameter','-Wno-cast-function-type','-Wno-stringop-truncation','-D_WIN32_WINNT=0x0A00','-DWIN32_LEAN_AND_MEAN','-DUNICODE','-D_UNICODE')
 $libs = @('-lcomctl32','-lcomdlg32','-lgdi32','-luser32','-ladvapi32','-lole32','-loleaut32','-luuid','-lshell32','-lshlwapi','-lws2_32','-ldwmapi','-limm32','-lmsimg32','-lcrypt32','-lwinmm','-lshlwapi')
 
 $srcs = Get-ChildItem -LiteralPath (Join-Path $root 'src') -Filter '*.c' |
