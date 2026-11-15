@@ -1348,6 +1348,13 @@ static LRESULT CALLBACK TermProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         int alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
 
         tv->suppress_char = 0;
+        /* 退格：只在这里发一次。WM_CHAR 也会收到 0x08，重复发送会「一次删两个字符」 */
+        if (wp == VK_BACK) {
+            if (ctrl) tv_send(tv, "\x08", 1);
+            else { tv_send(tv, "\x7f", 1); tv_line_pop(tv); }
+            tv->suppress_char = 1;
+            return 0;
+        }
         /* 可自定义快捷键：查表命中即派发命令（用户可改键/解绑） */
         {
             int cmd = yt_key_lookup(ctrl, shift, alt, (int)wp);
@@ -1408,7 +1415,7 @@ static LRESULT CALLBACK TermProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         if (ch == 0x09) { tv_send(tv, "\t", 1); return 0; }
-        if (ch == 0x08) { tv_send(tv, "\x7f", 1); tv_line_pop(tv); return 0; }
+        if (ch == 0x08) return 0;   /* 退格已由 WM_KEYDOWN 处理，这里再发就是双删 */
         char u8buf[8];
         size_t n = utf8_encode_one(ch, u8buf);
         tv_send(tv, u8buf, n);

@@ -9,6 +9,16 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <windows.h>
+
+static long long now_ms(void) { return (long long)GetTickCount64(); }
+
+static int dbg_on(void) {
+    static int v = -1;
+    if (v < 0) v = GetEnvironmentVariableA("YT_PROTO_DEBUG", NULL, 0) > 0;
+    return v;
+}
+#define DBG(...) do { if (dbg_on()) { fprintf(stderr, __VA_ARGS__); fflush(stderr); } } while (0)
 
 #define SOH 0x01
 #define STX 0x02
@@ -108,13 +118,13 @@ static u32 crc32_le(const u8 *data, int len) {
 /* XMODEM                                                              */
 /* ------------------------------------------------------------------ */
 static int x_wait_start(P *p, int use_crc, int timeout_ms) {
-    int t = 0;
-    while (t < timeout_ms) {
-        int c = p_get1(p, 1000);
-        if (c == CRCCHR || c == NAK) return use_crc ? 1 : 0;
+    long long t0 = now_ms();
+    while (now_ms() - t0 < timeout_ms) {
+        int c = p_get1(p, 200);
+        if (c == CRCCHR || c == NAK) { DBG("[s] start=%d\n", use_crc); return use_crc ? 1 : 0; }
         if (c == CAN) return -4;
-        t += 1000;
     }
+    DBG("[s] start timeout\n");
     return -2;
 }
 
@@ -139,16 +149,12 @@ static int x_send_block(P *p, u8 seq, const u8 *data, int len, int crc) {
 
 /* 等 ACK/NAK；返回 1=ACK，0=NAK，-4=CAN，-2=超时 */
 static int x_ack(P *p, int timeout_ms) {
-    int t = 0;
-    while (t < timeout_ms) {
-        int c = p_get1(p, 1000);
+    long long t0 = now_ms();
+    while (now_ms() - t0 < timeout_ms) {
+        int c = p_get1(p, 200);
         if (c == ACK) return 1;
         if (c == NAK) return 0;
         if (c == CAN) return -4;
-        if (c < 0) {
-            if (c == -1) return -1;
-            t += 1000;
-        }
     }
     return -2;
 }
@@ -168,17 +174,12 @@ int yt_xmodem_send(YtProtoIO *io, const char *path, int use_crc) {
 
     size_t off = 0;
     u8 seq = 1;
-    while (off + 128 <= len || off < len) {
-        u8 blk[1024];
-        int blen = 1024;
+    while (off < len) {
+        u8 blk[128];
         memset(blk, 0x1a, sizeof(blk));
         size_t left = len - off;
-        if (left < (size_t)blen) {
-            memcpy(blk, data + off, left);
-            blen = 128;   /* 尾块按 128 发，兼容性最好 */
-        } else {
-            memcpy(blk, data + off, 1024);
-        }
+        memcpy(blk, data + off, left < 128 ? left : 128);
+        int blen = 128;   /* 统一 128 字节块：busybox rx / 老式 ROM 监视器都能收 */
         int ok = 0;
         for (retry = 0; retry < X_MAX_RETRY && !ok; retry++) {
             if (x_send_block(&p, seq, blk, blen, crc) != 0) { rc = -1; goto done; }
@@ -207,80 +208,123 @@ done:
     return rc;
 }
 
+/* ------------------------------------------------------------------ */
+/* 取帧重同步：真实线路上块前可能多出垃圾字节（如先前的 0x01），          */
+/* 不能假定「读到的第一个字节就是 SOH」，要按 CRC 校验在流里找帧起点。    */
+/* ------------------------------------------------------------------ */
+typedef struct {
+    u8 b[4096];
+    int n;
+} RX;
+
+static int rx_fill(P *p, RX *x, int timeout_ms) {
+    int space = (int)sizeof(x->b) - x->n;
+    if (space <= 0) return 0;
+    int r = p_get(p, x->b + x->n, space, timeout_ms);
+    if (r > 0) x->n += r;
+    return r;
+}
+
+/* 在缓冲中找一帧 CRC 正确的块；找到则取出并前移缓冲。
+   兼容两种真实存在的布局：
+     A: SOH seq data(128/1024) crc16
+     B: SOH seq ~seq data(128/1024) crc16   —— 带序号反码的变体（部分板端 sx 用） */
+static int rx_take_block(RX *x, u8 *data, int *plen, u8 *pseq) {
+    for (int i = 0; i + 4 <= x->n; i++) {
+        if (x->b[i] != SOH && x->b[i] != STX) continue;
+        int len = (x->b[i] == STX) ? 1024 : 128;
+        for (int k = 0; k <= 1; k++) {
+            int d = i + 2 + k;              /* 数据起点 */
+            int need = d + len + 2;         /* 含 CRC 的结束位置 */
+            if (d + len + 2 > x->n) continue;
+            u16 want = crc16_ccitt(x->b + d, len);
+            u16 got = (u16)((x->b[d + len] << 8) | x->b[d + len + 1]);
+            if (want != got) continue;
+            /* B 布局时校验一下反码，避免把垃圾误判成 B */
+            if (k == 1 && (u8)(x->b[i + 1] + x->b[i + 2]) != 0xff) continue;
+            memcpy(data, x->b + d, (size_t)len);
+            *plen = len;
+            *pseq = x->b[i + 1];
+            memmove(x->b, x->b + need, (size_t)(x->n - need));
+            x->n -= need;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int rx_take_eot(RX *x) {
+    for (int i = 0; i < x->n; i++) {
+        if (x->b[i] == EOT) {
+            memmove(x->b, x->b + i + 1, (size_t)(x->n - i - 1));
+            x->n -= i + 1;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int rx_has_can(RX *x) {
+    for (int i = 0; i + 1 < x->n; i++)
+        if (x->b[i] == CAN && x->b[i + 1] == CAN) return 1;
+    return 0;
+}
+
+/* 缓冲里堆太多垃圾就只留尾部，避免无限增长 */
+static void rx_trim(RX *x) {
+    if (x->n > 1800) {
+        int keep = 1800;
+        memmove(x->b, x->b + (x->n - keep), (size_t)keep);
+        x->n = keep;
+    }
+}
+
+static void send_chr(P *p, u8 c) { p_write(p, &c, 1); }
+
 int yt_xmodem_recv(YtProtoIO *io, const char *save_path, int use_crc) {
     if (!io || !save_path) return -5;
     P p = { io, save_path, -1, 0 };
     FILE *f = _wfopen(utf8_to_wide(save_path), L"wb");
     if (!f) return -5;
-    int rc = 0, crc = use_crc;
-    int got_first = 0, retry = 0;
+    RX x;
+    x.n = 0;
+    u8 data[1024];
+    int len = 0, last = 0, started = 0;
+    long long idle = now_ms() - 10000, t0 = now_ms(), last_c = now_ms() - 900;
+    int rc = 0;
+    u8 c = (u8)(use_crc ? CRCCHR : NAK);
 
-    while (!got_first) {
-        if (p_write(&p, (const u8 *)(crc ? "C" : "\x15"), 1) != 0) { rc = -1; break; }
-        int c = p_get1(&p, 3000);
-        if (c == SOH || c == STX) {
-            int len = (c == STX) ? 1024 : 128;
-            u8 buf[1024 + 4];
-            int need = len + 1 + (crc ? 2 : 1);
-            int r = p_get(&p, buf, need, 3000);
-            if (r < need) { rc = -2; break; }
-            u16 c16 = crc16_ccitt(buf + 1, len);
-            u8 sum = 0;
-            for (int i = 0; i < len; i++) sum = (u8)(sum + buf[i + 1]);
-            int good = crc ? ((u16)((buf[len + 1] << 8) | buf[len + 2]) == c16)
-                           : ((u8)buf[len + 1] == sum);
-            if (good && buf[0] == 1) {
-                size_t w = fwrite(buf + 1, 1, (size_t)len, f);
-                if (w != (size_t)len) { rc = -1; break; }
+    while (1) {
+        /* 只要还没收到第一块，就按周期补发 'C'（不能以缓冲是否为空为条件，
+           对端启动时会先吐提示符/回显，缓冲非空但我们仍需要发 C） */
+        if (!started && now_ms() - last_c > 900) { send_chr(&p, c); last_c = now_ms(); DBG("[x] -> C\n"); }
+        int r = rx_fill(&p, &x, 400);
+        if (r > 0) { idle = now_ms(); DBG("[x] in %d bytes (buf %d): %02x %02x %02x\n", r, x.n, x.b[0], x.n > 1 ? x.b[1] : 0, x.n > 2 ? x.b[2] : 0); }
+        u8 seq;
+        if (rx_take_block(&x, data, &len, &seq)) {
+            started = 1;
+            DBG("[x] block seq=%d len=%d\n", (int)seq, len);
+            u8 expect = (u8)(last + 1);
+            if (seq == expect) {
+                if (fwrite(data, 1, (size_t)len, f) != (size_t)len) { rc = -1; break; }
+                last = expect;
                 p.done += (long)len;
                 p_prog(&p, p.done);
-                u8 a = ACK;
-                p_write(&p, &a, 1);
-                got_first = 1;
+                send_chr(&p, ACK);
+            } else if (seq == last) {
+                send_chr(&p, ACK);   /* 对端重发，补一个 ACK，不重复落盘 */
             } else {
-                u8 n = NAK;
-                p_write(&p, &n, 1);
-                if (++retry > 10) { rc = -3; break; }
+                send_chr(&p, NAK);
             }
-        } else if (c == CAN) { rc = -4; break; }
-    }
-    if (rc == 0) {
-        u8 last = 1;
-        int doneflag = 0;
-        while (!doneflag) {
-            int c = p_get1(&p, 10000);
-            if (c == EOT) {
-                u8 a = ACK;
-                p_write(&p, &a, 1);
-                doneflag = 1;
-                break;
-            }
-            if (c == CAN) { rc = -4; break; }
-            if (c < 0) { rc = -2; break; }
-            if (c == SOH || c == STX) {
-                int len = (c == STX) ? 1024 : 128;
-                u8 buf[1024 + 4];
-                int need = len + 1 + (crc ? 2 : 1);
-                if (p_get(&p, buf, need, 3000) < need) { rc = -2; break; }
-                u16 c16 = crc16_ccitt(buf + 1, len);
-                u8 sum = 0;
-                for (int i = 0; i < len; i++) sum = (u8)(sum + buf[i + 1]);
-                int good = crc ? ((u16)((buf[len + 1] << 8) | buf[len + 2]) == c16)
-                               : ((u8)buf[len + 1] == sum);
-                u8 expect = (u8)(last + 1);
-                if (good && buf[0] == expect) {
-                    size_t w = fwrite(buf + 1, 1, (size_t)len, f);
-                    if (w != (size_t)len) { rc = -1; break; }
-                    last = expect;
-                    p.done += (long)len;
-                    p_prog(&p, p.done);
-                    u8 a = ACK;
-                    p_write(&p, &a, 1);
-                } else {
-                    u8 n = NAK;
-                    p_write(&p, &n, 1);
-                }
-            }
+            continue;
+        }
+        if (rx_has_can(&x)) { DBG("[x] CAN detected, buf=%d\n", x.n); rc = -4; break; }
+        if (rx_take_eot(&x)) { send_chr(&p, ACK); rc = 0; break; }
+        rx_trim(&x);
+        if (!r) {
+            if (!started) {
+                if (now_ms() - t0 > 60000) { rc = -2; break; }
+            } else if (now_ms() - idle > 12000) { rc = -2; break; }
         }
     }
     fclose(f);
@@ -323,7 +367,7 @@ int yt_ymodem_send(YtProtoIO *io, const char *path) {
     u8 hdr[128];
     y_make_hdr(path, hdr, len);
     for (retry = 0; retry < X_MAX_RETRY; retry++) {
-        y_send_hdr(&p, 1, hdr, 128, crc);
+        y_send_hdr(&p, 0, hdr, 128, crc);
         int a = x_ack(&p, 30000);
         if (a == 1) break;
         if (a == -4) { rc = -4; goto done; }
@@ -333,11 +377,11 @@ int yt_ymodem_send(YtProtoIO *io, const char *path) {
     size_t off = 0;
     u8 seq = 1;
     while (off < len) {
-        u8 blk[1024];
+        u8 blk[128];
         size_t left = len - off;
-        int blen = (left >= 1024) ? 1024 : 1024;
+        int blen = 128;
         memset(blk, 0x1a, sizeof(blk));
-        memcpy(blk, data + off, left >= 1024 ? 1024 : left);
+        memcpy(blk, data + off, left < 128 ? left : 128);
         int ok = 0;
         for (retry = 0; retry < X_MAX_RETRY && !ok; retry++) {
             y_send_hdr(&p, seq, blk, blen, crc);
@@ -346,7 +390,7 @@ int yt_ymodem_send(YtProtoIO *io, const char *path) {
             else if (a == -4) { rc = -4; goto done; }
         }
         if (!ok) { rc = -2; goto done; }
-        off += (size_t)((left >= 1024) ? 1024 : blen);
+        off += (size_t)blen;
         p.done = (long)off;
         p_prog(&p, p.done);
         seq++;
@@ -364,7 +408,7 @@ int yt_ymodem_send(YtProtoIO *io, const char *path) {
         u8 zero[128];
         memset(zero, 0, sizeof(zero));
         for (retry = 0; retry < X_MAX_RETRY; retry++) {
-            y_send_hdr(&p, 1, zero, 128, crc);
+            y_send_hdr(&p, 0, zero, 128, crc);
             int a = x_ack(&p, 30000);
             if (a == 1) { rc = 0; goto done; }
             if (a == -4) { rc = -4; goto done; }
@@ -392,97 +436,84 @@ static int y_parse_hdr(const u8 *blk, int len, char *name, int cap, size_t *size
 int yt_ymodem_recv(YtProtoIO *io, const char *dir) {
     if (!io || !dir) return -5;
     P p = { io, dir, -1, 0 };
-    int rc = 0, crc = 1, retry = 0;
-    int batch = 0;
-    char save[520];
-    FILE *f = NULL;
+    RX x;
+    x.n = 0;
+    u8 data[1024];
+    int len = 0, files = 0, rc = 0;
+    u8 seq;
+    const u8 cch = CRCCHR;
+    long long t0 = now_ms(), idle = now_ms(), last_c = now_ms() - 900;
 
-    while (batch < 64) {
-        /* 请求块 0 */
-        int got = 0;
-        while (!got) {
-            p_write(&p, (const u8 *)(crc ? "C" : "\x15"), 1);
-            int c = p_get1(&p, 3000);
-            if (c == CAN) { fclose(f); return -4; }
-            if (c != SOH && c != STX) continue;
-            int len = (c == STX) ? 1024 : 128;
-            u8 buf[1024 + 4];
-            int need = len + 1 + (crc ? 2 : 1);
-            if (p_get(&p, buf, need, 3000) < need) { rc = -2; goto out; }
-            u16 c16 = crc16_ccitt(buf + 1, len);
-            u8 sum = 0;
-            for (int i = 0; i < len; i++) sum = (u8)(sum + buf[i + 1]);
-            int good = crc ? ((u16)((buf[len + 1] << 8) | buf[len + 2]) == c16)
-                           : ((u8)buf[len + 1] == sum);
-            if (!good || buf[0] != 1) {
-                u8 n = NAK;
-                p_write(&p, &n, 1);
-                if (++retry > 10) { rc = -3; goto out; }
-                continue;
-            }
-            u8 a = ACK;
-            p_write(&p, &a, 1);
-            char name[260];
-            size_t size = 0;
-            if (!y_parse_hdr(buf + 1, len, name, sizeof(name), &size)) {
-                /* 空块 0 = 批次结束 */
-                u8 z = ACK;
-                p_write(&p, &z, 1);
-                rc = 0;
-                goto out;
-            }
-            _snprintf(save, sizeof(save), "%s\\%s", dir, name);
-            f = _wfopen(utf8_to_wide(save), L"wb");
-            if (!f) { rc = -5; goto out; }
-            p.name = save;
-            p.total = (long)size;
-            p.done = 0;
-            got = 1;
-            batch++;
-        }
-        /* 收数据块 */
-        u8 last = 1;
-        int done = 0;
-        while (!done) {
-            int c = p_get1(&p, 10000);
-            if (c == EOT) {
-                u8 a = ACK;
-                p_write(&p, &a, 1);
-                fclose(f);
-                f = NULL;
-                done = 1;
+    send_chr(&p, cch);
+    while (files < 64) {
+        /* ---- 等块 0（文件头） ---- */
+        char name[260];
+        size_t size = 0;
+        int hdr = 0;
+        while (!hdr) {
+            if (!hdr && now_ms() - last_c > 900) { send_chr(&p, cch); last_c = now_ms(); }
+            int r = rx_fill(&p, &x, 400);
+            if (r > 0) idle = now_ms();
+            if (rx_take_block(&x, data, &len, &seq)) {
+                if (seq != 0) { send_chr(&p, NAK); continue; }
+                if (!y_parse_hdr(data, len, name, sizeof(name), &size)) {
+                    send_chr(&p, ACK);   /* 空头 = 整批结束 */
+                    goto out;
+                }
+                send_chr(&p, ACK);
+                hdr = 1;
                 break;
             }
-            if (c == CAN) { rc = -4; goto out; }
-            if (c < 0) { rc = -2; goto out; }
-            if (c != SOH && c != STX) continue;
-            int len = (c == STX) ? 1024 : 128;
-            u8 buf[1024 + 4];
-            int need = len + 1 + (crc ? 2 : 1);
-            if (p_get(&p, buf, need, 3000) < need) { rc = -2; goto out; }
-            u16 c16 = crc16_ccitt(buf + 1, len);
-            u8 sum = 0;
-            for (int i = 0; i < len; i++) sum = (u8)(sum + buf[i + 1]);
-            int good = crc ? ((u16)((buf[len + 1] << 8) | buf[len + 2]) == c16)
-                           : ((u8)buf[len + 1] == sum);
-            u8 expect = (u8)(last + 1);
-            if (good && buf[0] == expect) {
-                size_t w = fwrite(buf + 1, 1, (size_t)len, f);
-                if (w != (size_t)len) { rc = -1; goto out; }
-                last = expect;
-                p.done += (long)len;
-                p_prog(&p, p.done);
-                u8 a = ACK;
-                p_write(&p, &a, 1);
-            } else {
-                u8 n = NAK;
-                p_write(&p, &n, 1);
-                if (++retry > 10) { rc = -3; goto out; }
+            if (rx_has_can(&x)) { rc = -4; goto out; }
+            rx_trim(&x);
+            if (!r) {
+                if (!files && now_ms() - t0 > 60000) { rc = -2; goto out; }
+                if (now_ms() - idle > 15000) { rc = -2; goto out; }
             }
         }
+
+        /* ---- 收该文件的数据块 ---- */
+        char save[520];
+        _snprintf(save, sizeof(save), "%s\\%s", dir, name);
+        FILE *f = _wfopen(utf8_to_wide(save), L"wb");
+        if (!f) { rc = -5; goto out; }
+        p.name = save;
+        p.total = (long)size;
+        p.done = 0;
+        p_prog(&p, 0);
+        send_chr(&p, cch);      /* 请求数据 */
+        idle = now_ms();
+        int last = 0;
+        while (1) {
+            int r = rx_fill(&p, &x, 400);
+            if (r > 0) idle = now_ms();
+            if (rx_take_block(&x, data, &len, &seq)) {
+                u8 expect = (u8)(last + 1);
+                if (seq == expect) {
+                    if (fwrite(data, 1, (size_t)len, f) != (size_t)len) { fclose(f); rc = -1; goto out; }
+                    last = expect;
+                    p.done += (long)len;
+                    p_prog(&p, p.done);
+                    send_chr(&p, ACK);
+                } else if (seq == last) {
+                    send_chr(&p, ACK);
+                } else {
+                    send_chr(&p, NAK);
+                }
+                continue;
+            }
+            if (rx_has_can(&x)) { fclose(f); rc = -4; goto out; }
+            if (rx_take_eot(&x)) { send_chr(&p, ACK); break; }
+            rx_trim(&x);
+            if (!r && now_ms() - idle > 15000) { fclose(f); rc = -2; goto out; }
+        }
+        fclose(f);
+        files++;
+        /* 收下一份（对端会再发块 0，或发空头结束） */
+        send_chr(&p, cch);
+        idle = now_ms();
     }
 out:
-    if (f) fclose(f);
     return rc;
 }
 

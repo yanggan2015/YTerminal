@@ -46,6 +46,16 @@ static HWND mk_combo(HWND p, int id, int x, int y, int w, int h) {
     return c;
 }
 
+/* 可下拉也可手敲的组合框（波特率这类允许自定义数值的字段用） */
+static HWND mk_combo_edit(HWND p, int id, int x, int y, int w, int h) {
+    HWND c = CreateWindowExW(0, L"COMBOBOX", L"",
+                             WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL,
+                             x, y, w, h, p, (HMENU)(INT_PTR)id, g_app.inst, NULL);
+    SendMessageW(c, WM_SETFONT, (WPARAM)dfont(), TRUE);
+    SendMessageW(c, CB_LIMITTEXT, 9, 0);
+    return c;
+}
+
 static HWND mk_check(HWND p, int id, const wchar_t *text, int x, int y, int w, int checked) {
     HWND c = CreateWindowExW(0, L"BUTTON", text, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
                              x, y, w, 22, p, (HMENU)(INT_PTR)id, g_app.inst, NULL);
@@ -108,22 +118,46 @@ static int modal_run(HWND dlg, int *result) {
 /* ================================================================== */
 /* 会话编辑                                                             */
 /* ================================================================== */
+typedef struct { HWND h; int x, y, w, ht; } SdKid;
 typedef struct {
     DlgBase b;
     Session s;
     int index;
     int layout_bottom;
+    SdKid kids[96];
+    int nkids;
     HWND c_pages[4];
 } SessionDlg;
 
-static void sd_show_band(HWND h, int y0, int y1, int show) {
-    HWND c = GetWindow(h, GW_CHILD);
-    while (c) {
+/* 记录每个子控件在「全展开」时的基准坐标，切协议时按基准重排，避免来回切换累积偏移 */
+static void sd_snapshot(SessionDlg *sd) {
+    sd->nkids = 0;
+    HWND c = GetWindow(sd->b.hwnd, GW_CHILD);
+    while (c && sd->nkids < (int)(sizeof(sd->kids) / sizeof(sd->kids[0]))) {
         RECT r; GetWindowRect(c, &r);
         POINT pt = { r.left, r.top };
-        ScreenToClient(h, &pt);
-        if (pt.y >= y0 && pt.y < y1 && pt.y > app_dpi(112)) ShowWindow(c, show ? SW_SHOW : SW_HIDE);
+        ScreenToClient(sd->b.hwnd, &pt);
+        sd->kids[sd->nkids].h = c;
+        sd->kids[sd->nkids].x = pt.x;
+        sd->kids[sd->nkids].y = pt.y;
+        sd->kids[sd->nkids].w = r.right - r.left;
+        sd->kids[sd->nkids].ht = r.bottom - r.top;
+        sd->nkids++;
         c = GetWindow(c, GW_HWNDNEXT);
+    }
+}
+
+static void sd_show_band_base(SessionDlg *sd, int y0, int y1, int show) {
+    for (int i = 0; i < sd->nkids; i++) {
+        SdKid *k = &sd->kids[i];
+        if (k->y >= y0 && k->y < y1 && k->y > app_dpi(112)) ShowWindow(k->h, show ? SW_SHOW : SW_HIDE);
+    }
+}
+
+static void sd_place_band(SessionDlg *sd, int y0, int y1, int dy) {
+    for (int i = 0; i < sd->nkids; i++) {
+        SdKid *k = &sd->kids[i];
+        if (k->y >= y0 && k->y < y1) MoveWindow(k->h, k->x, k->y + dy, k->w, k->ht, TRUE);
     }
 }
 
@@ -157,13 +191,30 @@ static void sd_sync_proto(SessionDlg *sd, int proto) {
     int show_ssh = proto == PROTO_SSH || proto == PROTO_TELNET;
     int show_ser = proto == PROTO_SERIAL;
     int show_loc = proto == PROTO_LOCAL;
-    sd_show_band(sd->b.hwnd, 0, app_dpi(112), 1);
-    sd_show_band(sd->b.hwnd, app_dpi(112), app_dpi(336), show_ssh);
-    sd_show_band(sd->b.hwnd, app_dpi(336), app_dpi(476), show_ser);
-    sd_show_band(sd->b.hwnd, app_dpi(476), app_dpi(576), show_loc);
-    sd_show_band(sd->b.hwnd, app_dpi(576), app_dpi(760), 1);
+    /* 先复位到基准位置，再按协议隐藏 / 上移，避免反复切换累积偏移 */
+    for (int i = 0; i < sd->nkids; i++) {
+        SdKid *k = &sd->kids[i];
+        MoveWindow(k->h, k->x, k->y, k->w, k->ht, TRUE);
+        ShowWindow(k->h, SW_SHOW);
+    }
+    sd_show_band_base(sd, 0, app_dpi(112), 1);
+    sd_show_band_base(sd, app_dpi(112), app_dpi(336), show_ssh);
+    sd_show_band_base(sd, app_dpi(336), app_dpi(476), show_ser);
+    sd_show_band_base(sd, app_dpi(476), app_dpi(576), show_loc);
+    sd_show_band_base(sd, app_dpi(576), app_dpi(760), 1);
+    /* 当前协议的区块顶到「连接参数」标题下方，消掉中间空白 */
+    int bottom;
+    if (proto == PROTO_SERIAL) {
+        sd_place_band(sd, app_dpi(336), app_dpi(476), app_dpi(146) - app_dpi(346));
+        bottom = 274;
+    } else if (proto == PROTO_LOCAL) {
+        sd_place_band(sd, app_dpi(476), app_dpi(576), app_dpi(146) - app_dpi(486));
+        bottom = 210;
+    } else {
+        bottom = 336;
+    }
     /* 标签文字显隐由 WM_PAINT 根据协议处理，这里只处理控件 */
-    sd->layout_bottom = (proto == PROTO_SERIAL) ? 476 : (proto == PROTO_LOCAL) ? 576 : 336;
+    sd->layout_bottom = bottom;
     sd_relayout(sd);
     InvalidateRect(sd->b.hwnd, NULL, TRUE);
 }
@@ -337,6 +388,32 @@ static void sd_paint(SessionDlg *sd) {
     EndPaint(sd->b.hwnd, &ps);
 }
 
+/* 串口下拉：先列系统中真实存在的口（注册表 SERIALCOMM），再补 COM1..COM32 */
+static int sd_fill_ports(HWND sc) {
+    wchar_t have[40][16];
+    int n = 0;
+    HKEY hk = NULL;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"HARDWARE\\DEVICEMAP\\SERIALCOMM", 0, KEY_READ, &hk) == ERROR_SUCCESS) {
+        for (DWORD i = 0; i < 64 && n < 40; i++) {
+            wchar_t name[128], data[64];
+            DWORD nl = 128, dl = 64, type = 0;
+            if (RegEnumValueW(hk, i, name, &nl, NULL, &type, (LPBYTE)data, &dl) != ERROR_SUCCESS) break;
+            if (type != REG_SZ || !data[0]) continue;
+            SendMessageW(sc, CB_ADDSTRING, 0, (LPARAM)data);
+            wcsncpy(have[n], data, 15); have[n][15] = 0; n++;
+        }
+        RegCloseKey(hk);
+    }
+    for (int i = 1; i <= 32; i++) {
+        wchar_t name[16];
+        _snwprintf(name, 16, L"COM%d", i);
+        int dup = 0;
+        for (int k = 0; k < n; k++) if (_wcsicmp(have[k], name) == 0) { dup = 1; break; }
+        if (!dup) { SendMessageW(sc, CB_ADDSTRING, 0, (LPARAM)name); }
+    }
+    return n;
+}
+
 static LRESULT CALLBACK SessionProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     SessionDlg *sd = (SessionDlg *)GetWindowLongPtrW(h, GWLP_USERDATA);
     switch (msg) {
@@ -399,18 +476,19 @@ static LRESULT CALLBACK SessionProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         /* ---- 串口区（340..470） ---- */
         sy = app_dpi(346);
         mk_label(h, L"串口", lx, sy + 3, app_dpi(72));
-        HWND sc = mk_combo(h, IDC_DLG_SERIALPORT, x, sy, app_dpi(140), app_dpi(200));
-        for (int i = 1; i <= 32; i++) {
-            wchar_t name[16];
-            _snwprintf(name, 16, L"COM%d", i);
-            SendMessageW(sc, CB_ADDSTRING, 0, (LPARAM)name);
-        }
+        HWND sc = mk_combo(h, IDC_DLG_SERIALPORT, x, sy, app_dpi(140), app_dpi(220));
+        sd_fill_ports(sc);
         SendMessageW(sc, CB_SETCURSEL, 0, 0);
         mk_label(h, L"波特率", x + app_dpi(150), sy + 3, app_dpi(50));
-        HWND bc = mk_combo(h, IDC_DLG_BAUD, x + app_dpi(202), sy, app_dpi(120), app_dpi(200));
-        int bauds[] = { 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600 };
-        for (int i = 0; i < 8; i++) { wchar_t b[16]; _snwprintf(b, 16, L"%d", bauds[i]); SendMessageW(bc, CB_ADDSTRING, 0, (LPARAM)b); }
-        SendMessageW(bc, CB_SETCURSEL, 4, 0);
+        HWND bc = mk_combo_edit(h, IDC_DLG_BAUD, x + app_dpi(202), sy, app_dpi(120), app_dpi(240));
+        int bauds[] = { 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400,
+                        460800, 921600, 1000000, 1500000, 2000000, 3000000 };
+        for (int i = 0; i < (int)(sizeof(bauds) / sizeof(bauds[0])); i++) {
+            wchar_t b[16];
+            _snwprintf(b, 16, L"%d", bauds[i]);
+            SendMessageW(bc, CB_ADDSTRING, 0, (LPARAM)b);
+        }
+        wset(h, IDC_DLG_BAUD, L"115200");
         sy += lh;
         mk_label(h, L"数据位", lx, sy + 3, app_dpi(72));
         HWND dc = mk_combo(h, IDC_DLG_DATABITS, x, sy, app_dpi(80), app_dpi(200));
@@ -460,6 +538,7 @@ static LRESULT CALLBACK SessionProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 
         sd->b.bg = CreateSolidBrush(app_ui_bg());
         sd->b.editbg = CreateSolidBrush(app_ui_panel());
+        sd_snapshot(sd);
         sd_load(sd);
         return 0;
     }

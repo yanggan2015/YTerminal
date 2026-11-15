@@ -159,6 +159,40 @@ int main(int argc, char **argv) {
         return 0;
     }
 
+    if (strcmp(mode, "cmd") == 0) {
+        /* 纯文本命令模式：执行 path 里的命令（cmd 参数），把回显打出来 */
+        long long end = now_ms() + 2500;
+        while (now_ms() < end) {
+            u8 b[256];
+            int got = ser_get(&s, b, 256, 50);
+            if (got) {
+                for (int i = 0; i < got; i++) putchar(b[i] >= 32 || b[i] == 10 || b[i] == 13 ? b[i] : '.');
+            }
+        }
+        printf("\n[cmd done]\n");
+        CloseHandle(h);
+        return 0;
+    }
+
+    if (strcmp(mode, "xraw") == 0) {
+        /* 发 C 并原样记录 3 秒收到的全部字节，用于离线分析取帧偏移 */
+        long long end = now_ms() + 3000;
+        u8 buf[4096];
+        int n = 0;
+        long long lastc = 0;
+        while (now_ms() < end) {
+            if (now_ms() - lastc > 500) { u8 c = 'C'; ser_put(&s, &c, 1); lastc = now_ms(); }
+            u8 b[256];
+            int got = ser_get(&s, b, 256, 50);
+            for (int i = 0; i < got && n < (int)sizeof(buf); i++) buf[n++] = b[i];
+        }
+        FILE *rf = fopen("build\\raw.bin", "wb");
+        if (rf) { fwrite(buf, 1, (size_t)n, rf); fclose(rf); }
+        printf("[xraw] %d bytes -> build\\raw.bin\n", n);
+        CloseHandle(h);
+        return 0;
+    }
+
     if (strcmp(mode, "dump") == 0) {
         long long end = now_ms() + 5000;
         while (now_ms() < end) {

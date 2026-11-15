@@ -1,0 +1,8 @@
+ssh 
+sshbridge.online 端口 52222 账号 demo 密码 123456
+sshbridge.online 端口 52223 账号 demo 密码 123456
+39.97.234.200  端口 22 账号 root 密码 !!!zzxxccvvbbnnmmMMNN12345678
+
+串口开发板
+com3 波特率 1500000 ubuntu 系统 root 无密码
+com5 波特率 115200 Linux系统 账号密码root Ncti2023
