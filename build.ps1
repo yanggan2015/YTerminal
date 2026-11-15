@@ -1,38 +1,46 @@
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
+$env:PATH = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;" + $env:PATH
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $root
-$env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
 $build = Join-Path $root 'build'
-if (-not (Test-Path -LiteralPath $build)) { New-Item -ItemType Directory -Path $build | Out-Null }
+$tp = Join-Path $root 'third_party\mingw64'
+New-Item -ItemType Directory -Force -Path $build | Out-Null
 
-$cc = 'gcc'
-$cflags = @('-c','-O2','-Wall','-Wextra','-Wno-unused-parameter','-Wno-cast-function-type','-Wno-stringop-truncation','-D_WIN32_WINNT=0x0A00','-DWIN32_LEAN_AND_MEAN','-DUNICODE','-D_UNICODE')
-$libs = @('-lcomctl32','-lcomdlg32','-lgdi32','-luser32','-ladvapi32','-lole32','-loleaut32','-luuid','-lshell32','-lshlwapi','-lws2_32','-ldwmapi','-limm32','-lmsimg32','-lcrypt32','-lwinmm','-lshlwapi')
+$cflags = @(
+  '-O2','-Wall','-DUNICODE','-D_UNICODE','-DUI_BRIDGE_ENABLE','-D_WIN32_WINNT=0x0A00',
+  "-I$root\src\core","-I$root\src\ui","-I$root\bridge","-I$root\third_party","-I$tp\include"
+)
+$ld = @("-L$tp\lib",'-lssh2','-lssl','-lcrypto','-lz','-lws2_32','-lcrypt32','-luser32','-lgdi32','-lcomctl32','-lcomdlg32','-ladvapi32','-lshell32','-lole32')
+$src = @(
+  "$root\src\ui\main.c",
+  "$root\src\ui\app_state.c",
+  "$root\src\ui\app_tree.c",
+  "$root\src\ui\app_connect.c",
+  "$root\src\ui\term_view.c",
+  "$root\src\ui\ui_extra.c",
+  "$root\src\core\paths.c",
+  "$root\src\core\cred_store.c",
+  "$root\src\core\profile_store.c",
+  "$root\src\core\session.c",
+  "$root\src\core\window_store.c",
+  "$root\src\core\features.c",
+  "$root\src\engine\ssh_session.c",
+  "$root\src\engine\ssh_async.c",
+  "$root\src\engine\local_pty.c",
+  "$root\src\engine\serial_session.c",
+  "$root\src\engine\telnet_session.c",
+  "$root\src\engine\sftp.c",
+  "$root\src\engine\forward.c",
+  "$root\src\engine\zmodem.c",
+  "$root\src\engine\remotes.c",
+  "$root\bridge\win_ui_bridge.c",
+  "$root\third_party\mongoose.c",
+  "$root\third_party\cJSON.c"
+)
 
-$srcs = Get-ChildItem -LiteralPath (Join-Path $root 'src') -Filter '*.c' |
-        Where-Object { $_.Name -ne 'askpass.c' } | Sort-Object Name
-$objs = @()
-$failed = 0
-foreach ($s in $srcs) {
-    $o = Join-Path $build ($s.BaseName + '.o')
-    $objs += $o
-    & $cc @cflags (Join-Path 'src' $s.Name) -o $o
-    if ($LASTEXITCODE -ne 0) { Write-Host "FAILED: $($s.Name)"; $failed = 1 }
-}
-if ($failed) { exit 1 }
+Write-Host 'Building YTerminal (Test+Bridge)...'
+gcc @cflags -o "$build\YTerminal.exe" @src -mwindows -municode '-Wl,--stack,8388608' @ld
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-# 资源（清单 + 版本信息）
-& windres 'src\app.rc' -O coff -o (Join-Path $build 'app.res.o')
-if ($LASTEXITCODE -ne 0) { exit 1 }
-$objs += (Join-Path $build 'app.res.o')
-
-& $cc -o (Join-Path $build 'YTerminal.exe') @objs @libs '-municode' '-mwindows' '-static' '-static-libgcc' '-s'
-if ($LASTEXITCODE -ne 0) { exit 1 }
-
-# SSH_ASKPASS 辅助程序
-& $cc '-O2' '-DWIN32_LEAN_AND_MEAN' 'src\askpass.c' -o (Join-Path $build 'YTPass.exe') '-municode' '-static' '-s'
-if ($LASTEXITCODE -ne 0) { exit 1 }
-
-$exe = Join-Path $build 'YTerminal.exe'
-$size = (Get-Item -LiteralPath $exe).Length
-Write-Host ("BUILD OK  {0}  ({1:N0} KB)" -f $exe, ($size/1KB))
+Copy-Item "$tp\bin\*.dll" $build -Force
+Write-Host "OK: $build\YTerminal.exe"
+Get-Item "$build\YTerminal.exe" | Format-Table Name,Length,LastWriteTime

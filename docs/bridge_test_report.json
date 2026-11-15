@@ -1,0 +1,101 @@
+{
+  "pass": 19,
+  "fail": 0,
+  "cases": [
+    {
+      "r": "PASS",
+      "name": "ui-tree ids",
+      "detail": "n=40"
+    },
+    {
+      "r": "PASS",
+      "name": "startup has local tab",
+      "detail": "{\"tabs\": 1, \"cur\": 0, \"kind\": 0, \"state\": 2, \"title\": \"Local:powershell\", \"sftp\": false, \"sync\": false, \"version\": \"1.0.0\"}"
+    },
+    {
+      "r": "PASS",
+      "name": "startup disconnect",
+      "detail": "tabs=0 after 1 closes"
+    },
+    {
+      "r": "PASS",
+      "name": "local disc#0",
+      "detail": "tabs=0 after 1 closes"
+    },
+    {
+      "r": "PASS",
+      "name": "local disc#1",
+      "detail": "tabs=0 after 1 closes"
+    },
+    {
+      "r": "PASS",
+      "name": "local disc#2",
+      "detail": "tabs=0 after 1 closes"
+    },
+    {
+      "r": "PASS",
+      "name": "local connect/disconnect x3",
+      "detail": ""
+    },
+    {
+      "r": "PASS",
+      "name": "btn.local",
+      "detail": ""
+    },
+    {
+      "r": "PASS",
+      "name": "btn.local disconnect",
+      "detail": "tabs=0 after 1 closes"
+    },
+    {
+      "r": "PASS",
+      "name": "pre-multi clear",
+      "detail": "tabs=0 after 0 closes"
+    },
+    {
+      "r": "PASS",
+      "name": "multi local tabs=2",
+      "detail": ""
+    },
+    {
+      "r": "PASS",
+      "name": "multi disconnect",
+      "detail": "tabs=0 after 2 closes"
+    },
+    {
+      "r": "PASS",
+      "name": "pre-ssh clear",
+      "detail": "tabs=0 after 0 closes"
+    },
+    {
+      "r": "PASS",
+      "name": "ssh connect",
+      "detail": "{\"tabs\": 1, \"cur\": 0, \"kind\": 1, \"state\": 2, \"title\": \"demo@sshbridge.online:52222\", \"sftp\": true, \"sync\": false, \"version\": \"1.0.0\"}"
+    },
+    {
+      "r": "PASS",
+      "name": "ssh disconnect",
+      "detail": "tabs=0 after 1 closes"
+    },
+    {
+      "r": "PASS",
+      "name": "pre-serial clear",
+      "detail": "tabs=0 after 0 closes"
+    },
+    {
+      "r": "PASS",
+      "name": "serial connect",
+      "detail": "{\"tabs\": 1, \"cur\": 0, \"kind\": 2, \"state\": 2, \"title\": \"COM5 @ 115200\", \"sftp\": false, \"sync\": false, \"version\": \"1.0.0\"}"
+    },
+    {
+      "r": "PASS",
+      "name": "serial disconnect",
+      "detail": "tabs=0 after 1 closes"
+    },
+    {
+      "r": "PASS",
+      "name": "final ping",
+      "detail": ""
+    }
+  ]
+}

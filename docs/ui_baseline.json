@@ -1,0 +1,637 @@
+{
+  "type": "ui-tree",
+  "ts": 244213171,
+  "main_rect": [
+    0,
+    0,
+    1300,
+    740
+  ],
+  "count": 39,
+  "controls": [
+    {
+      "id": "btn.toolbar.connect",
+      "role": "button",
+      "class": "Button",
+      "text": "▶ 连接",
+      "rect": [
+        16,
+        56,
+        88,
+        82
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 0,
+      "parent": "root"
+    },
+    {
+      "id": "auto/Button#1302",
+      "role": "button",
+      "class": "Button",
+      "text": "⚡ 快速连接",
+      "rect": [
+        92,
+        56,
+        188,
+        82
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 1,
+      "parent": "root"
+    },
+    {
+      "id": "btn.local",
+      "role": "button",
+      "class": "Button",
+      "text": "💻 本地",
+      "rect": [
+        192,
+        56,
+        264,
+        82
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 2,
+      "parent": "root"
+    },
+    {
+      "id": "btn.close",
+      "role": "button",
+      "class": "Button",
+      "text": "■ 断开",
+      "rect": [
+        268,
+        56,
+        340,
+        82
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 3,
+      "parent": "root"
+    },
+    {
+      "id": "auto/Button#1305",
+      "role": "button",
+      "class": "Button",
+      "text": "↺ 重连",
+      "rect": [
+        344,
+        56,
+        416,
+        82
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 4,
+      "parent": "root"
+    },
+    {
+      "id": "btn.sync",
+      "role": "button",
+      "class": "Button",
+      "text": "⇄ 同步",
+      "rect": [
+        420,
+        56,
+        492,
+        82
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 5,
+      "parent": "root"
+    },
+    {
+      "id": "auto/Button#1307",
+      "role": "button",
+      "class": "Button",
+      "text": "☰ 属性",
+      "rect": [
+        496,
+        56,
+        568,
+        82
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 6,
+      "parent": "root"
+    },
+    {
+      "id": "auto/Button#1308",
+      "role": "button",
+      "class": "Button",
+      "text": "📁 SFTP",
+      "rect": [
+        572,
+        56,
+        652,
+        82
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 7,
+      "parent": "root"
+    },
+    {
+      "id": "auto/Button#1309",
+      "role": "button",
+      "class": "Button",
+      "text": "🔍",
+      "rect": [
+        818,
+        56,
+        858,
+        82
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 8,
+      "parent": "root"
+    },
+    {
+      "id": "cmb.kind",
+      "role": "combobox",
+      "class": "ComboBox",
+      "text": "SSH",
+      "rect": [
+        16,
+        89,
+        94,
+        114
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 9,
+      "parent": "root"
+    },
+    {
+      "id": "edit.ssh.host",
+      "role": "textbox",
+      "class": "Edit",
+      "text": "sshbridge.online",
+      "rect": [
+        100,
+        89,
+        300,
+        113
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 10,
+      "parent": "root"
+    },
+    {
+      "id": "edit.ssh.port",
+      "role": "textbox",
+      "class": "Edit",
+      "text": "52222",
+      "rect": [
+        306,
+        89,
+        358,
+        113
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 11,
+      "parent": "root"
+    },
+    {
+      "id": "edit.ssh.user",
+      "role": "textbox",
+      "class": "Edit",
+      "text": "demo",
+      "rect": [
+        364,
+        89,
+        444,
+        113
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 12,
+      "parent": "root"
+    },
+    {
+      "id": "edit.ssh.pass",
+      "role": "textbox",
+      "class": "Edit",
+      "text": "123456",
+      "rect": [
+        450,
+        89,
+        530,
+        113
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 13,
+      "parent": "root"
+    },
+    {
+      "id": "btn.connect",
+      "role": "button",
+      "class": "Button",
+      "text": "连接",
+      "rect": [
+        578,
+        88,
+        650,
+        114
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 14,
+      "parent": "root"
+    },
+    {
+      "id": "auto/Edit#1029",
+      "role": "textbox",
+      "class": "Edit",
+      "text": "",
+      "rect": [
+        -392,
+        51,
+        -382,
+        61
+      ],
+      "enabled": true,
+      "visible": false,
+      "order": 15,
+      "parent": "root"
+    },
+    {
+      "id": "auto/Edit#1027",
+      "role": "textbox",
+      "class": "Edit",
+      "text": "",
+      "rect": [
+        -392,
+        51,
+        -382,
+        61
+      ],
+      "enabled": true,
+      "visible": false,
+      "order": 16,
+      "parent": "root"
+    },
+    {
+      "id": "auto/Edit#1028",
+      "role": "textbox",
+      "class": "Edit",
+      "text": "",
+      "rect": [
+        -392,
+        51,
+        -382,
+        61
+      ],
+      "enabled": true,
+      "visible": false,
+      "order": 17,
+      "parent": "root"
+    },
+    {
+      "id": "edit.serial.com",
+      "role": "textbox",
+      "class": "Edit",
+      "text": "COM3",
+      "rect": [
+        100,
+        89,
+        190,
+        113
+      ],
+      "enabled": true,
+      "visible": false,
+      "order": 18,
+      "parent": "root"
+    },
+    {
+      "id": "edit.serial.baud",
+      "role": "textbox",
+      "class": "Edit",
+      "text": "1500000",
+      "rect": [
+        196,
+        89,
+        296,
+        113
+      ],
+      "enabled": true,
+      "visible": false,
+      "order": 19,
+      "parent": "root"
+    },
+    {
+      "id": "edit.find",
+      "role": "textbox",
+      "class": "Edit",
+      "text": "",
+      "rect": [
+        664,
+        56,
+        814,
+        82
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 20,
+      "parent": "root"
+    },
+    {
+      "id": "label.session.manager",
+      "role": "label",
+      "class": "Static",
+      "text": "  会话管理器",
+      "rect": [
+        8,
+        117,
+        238,
+        143
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 21,
+      "parent": "root"
+    },
+    {
+      "id": "tree.sessions",
+      "role": "tree",
+      "class": "SysTreeView32",
+      "text": "",
+      "rect": [
+        8,
+        143,
+        238,
+        676
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 22,
+      "parent": "root"
+    },
+    {
+      "id": "tab.main",
+      "role": "tabview",
+      "class": "SysTabControl32",
+      "text": "",
+      "rect": [
+        238,
+        117,
+        1292,
+        145
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 23,
+      "parent": "root"
+    },
+    {
+      "id": "auto/Static#1202",
+      "role": "label",
+      "class": "Static",
+      "text": "  SFTP",
+      "rect": [
+        8,
+        51,
+        108,
+        77
+      ],
+      "enabled": true,
+      "visible": false,
+      "order": 24,
+      "parent": "root"
+    },
+    {
+      "id": "list.sftp",
+      "role": "listbox",
+      "class": "ListBox",
+      "text": "",
+      "rect": [
+        8,
+        51,
+        208,
+        138
+      ],
+      "enabled": true,
+      "visible": false,
+      "order": 25,
+      "parent": "root"
+    },
+    {
+      "id": "edit.sftp.path",
+      "role": "textbox",
+      "class": "Edit",
+      "text": ".",
+      "rect": [
+        8,
+        51,
+        208,
+        73
+      ],
+      "enabled": true,
+      "visible": false,
+      "order": 26,
+      "parent": "root"
+    },
+    {
+      "id": "btn.sftp.refresh",
+      "role": "button",
+      "class": "Button",
+      "text": "刷新",
+      "rect": [
+        8,
+        51,
+        78,
+        77
+      ],
+      "enabled": true,
+      "visible": false,
+      "order": 27,
+      "parent": "root"
+    },
+    {
+      "id": "btn.sftp.upload",
+      "role": "button",
+      "class": "Button",
+      "text": "上传",
+      "rect": [
+        8,
+        51,
+        78,
+        77
+      ],
+      "enabled": true,
+      "visible": false,
+      "order": 28,
+      "parent": "root"
+    },
+    {
+      "id": "btn.sftp.download",
+      "role": "button",
+      "class": "Button",
+      "text": "下载",
+      "rect": [
+        8,
+        51,
+        78,
+        77
+      ],
+      "enabled": true,
+      "visible": false,
+      "order": 29,
+      "parent": "root"
+    },
+    {
+      "id": "auto/Button#1400",
+      "role": "button",
+      "class": "Button",
+      "text": "ls -la",
+      "rect": [
+        16,
+        679,
+        104,
+        703
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 30,
+      "parent": "root"
+    },
+    {
+      "id": "auto/Button#1401",
+      "role": "button",
+      "class": "Button",
+      "text": "pwd",
+      "rect": [
+        108,
+        679,
+        196,
+        703
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 31,
+      "parent": "root"
+    },
+    {
+      "id": "auto/Button#1402",
+      "role": "button",
+      "class": "Button",
+      "text": "top -bn1 | head",
+      "rect": [
+        200,
+        679,
+        288,
+        703
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 32,
+      "parent": "root"
+    },
+    {
+      "id": "auto/Button#1403",
+      "role": "button",
+      "class": "Button",
+      "text": "df -h",
+      "rect": [
+        292,
+        679,
+        380,
+        703
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 33,
+      "parent": "root"
+    },
+    {
+      "id": "auto/Button#1404",
+      "role": "button",
+      "class": "Button",
+      "text": "free -m",
+      "rect": [
+        384,
+        679,
+        472,
+        703
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 34,
+      "parent": "root"
+    },
+    {
+      "id": "auto/Button#1405",
+      "role": "button",
+      "class": "Button",
+      "text": "uname -a",
+      "rect": [
+        476,
+        679,
+        564,
+        703
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 35,
+      "parent": "root"
+    },
+    {
+      "id": "edit.quick",
+      "role": "textbox",
+      "class": "Edit",
+      "text": "",
+      "rect": [
+        576,
+        679,
+        1200,
+        703
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 36,
+      "parent": "root"
+    },
+    {
+      "id": "btn.quick",
+      "role": "button",
+      "class": "Button",
+      "text": "发送",
+      "rect": [
+        1208,
+        679,
+        1280,
+        703
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 37,
+      "parent": "root"
+    },
+    {
+      "id": "label.status",
+      "role": "label",
+      "class": "Static",
+      "text": "  已连接  |  Local  |  UTF-8  |  行 0  列 0  |  Local:powershell  |  同步 关  |  缓冲 0",
+      "rect": [
+        8,
+        708,
+        1292,
+        732
+      ],
+      "enabled": true,
+      "visible": true,
+      "order": 38,
+      "parent": "root"
+    }
+  ]
+}

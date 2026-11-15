@@ -1,17 +1,30 @@
-# 构建产物
 build/
+dist/
 *.o
-*.exe
 *.obj
-*.res
-
-# 第三方参考源码（体积大，不入库）
-参考/
-
-# 本地/临时
-*.log
-*.tmp
-*.bak
+*.exe
+!tools/*.exe
 .vs/
-.vscode/
 *.user
+*.suo
+**/config/sessions.json
+**/config/sessions.json.bak
+**/config/window.json
+**/config/ui_bridge.token
+**/config/creds.bin
+**/logs/
+*.log
+__pycache__/
+.DS_Store
+*.webp
+*.docx
+vendor_src/
+# legacy stubs (not in build.ps1)
+src/main.c
+src/session.c
+src/dlg.c
+src/term_view.c
+src/pty_session.c
+src/serial_session.c
+src/yt.h
+src/yt_askpass.c
