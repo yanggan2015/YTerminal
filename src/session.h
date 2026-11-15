@@ -95,6 +95,7 @@ typedef struct {
     int confirm_close;
     int smooth_scroll;
     int status_clock;
+    char highlights[512];  /* 高亮规则：文本=>#RRGGBB，分号/换行分隔 */
 } Settings;
 
 /* ---- 数据目录 ---- */

@@ -1,5 +1,6 @@
 #include "app.h"
 #include "ids.h"
+#include "core.h"
 #include <commctrl.h>
 #include <imm.h>
 #include <windowsx.h>
@@ -7,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wctype.h>
 #include <math.h>
 
 /* ------------------------------------------------------------------ */
@@ -500,6 +502,59 @@ static void tv_paint_scrollbar(TermView *tv, HDC hdc, int w, int h) {
     app_fill_round(hdc, &th, app_dpi(3), g_app.theme->ui_dim);
 }
 
+/* 关键字高亮：在已绘制文本上按规则叠色（大小写不敏感） */
+static void tv_paint_highlights(TermView *tv, HDC hdc) {
+    if (!g_app.set.highlights[0]) return;
+    YtRule rules[12];
+    int nr = yt_rules_parse(g_app.set.highlights, rules, 12);
+    if (nr <= 0) return;
+    SetBkMode(hdc, TRANSPARENT);
+    for (int r = 0; r < tv->rows; r++) {
+        Cell *line = vt_line(tv->vt, vt_line_index_for_row(tv->vt, r));
+        if (!line) continue;
+        wchar_t text[600];
+        int colmap[600];
+        int m = 0;
+        for (int x = 0; x < tv->cols && m < 590; x++) {
+            Cell *c = &line[x];
+            if (c->width == 0) continue;
+            text[m] = (wchar_t)(c->cp ? c->cp : ' ');
+            colmap[m] = x;
+            m++;
+        }
+        for (int k = 0; k < nr; k++) {
+            if (!rules[k].text[0]) continue;
+            wchar_t *kw = utf8_to_wide(rules[k].text);
+            if (!kw) continue;
+            int kl = (int)wcslen(kw);
+            if (kl > 0 && kl <= m) {
+                for (int i = 0; i + kl <= m; i++) {
+                    int hit = 1;
+                    for (int j = 0; j < kl; j++) {
+                        if (towlower((wint_t)text[i + j]) != towlower((wint_t)kw[j])) { hit = 0; break; }
+                    }
+                    if (!hit) continue;
+                    COLORREF col = app_cr(rules[k].color, g_app.theme->fg);
+                    for (int j = 0; j < kl; j++) {
+                        int x = colmap[i + j];
+                        Cell *c = &line[x];
+                        if (c->width == 0) continue;
+                        if ((c->cp == ' ' || c->cp == 0) && c->cp2 == 0) continue;
+                        HFONT old = (HFONT)SelectObject(hdc, tv_font(tv, c->attr, 0));
+                        SetTextColor(hdc, col);
+                        wchar_t wbuf[2] = { text[i + j], 0 };
+                        ExtTextOutW(hdc, tv->pad + x * tv->cell_w,
+                                    tv->pad + r * tv->cell_h + (tv->cell_h - g_app.font_h) / 2,
+                                    0, NULL, wbuf, 1, NULL);
+                        SelectObject(hdc, old);
+                    }
+                    i += kl - 1;
+                }
+            }
+            free(kw);
+        }
+    }
+}
 static void tv_paint(TermView *tv) {
     RECT rc;
     GetClientRect(tv->hwnd, &rc);
@@ -515,6 +570,7 @@ static void tv_paint(TermView *tv) {
         SelectObject(tv->memdc, tv->bmp);
     }
     tv_paint_cells(tv, tv->memdc, w, h);
+    tv_paint_highlights(tv, tv->memdc);
     tv_paint_scrollbar(tv, tv->memdc, w, h);
 
     /* 搜索框背景不在此绘制，由 EDIT 自身负责 */
@@ -1264,6 +1320,7 @@ static LRESULT CALLBACK TermProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             case 'E': PostMessageW(g_app.main, WM_COMMAND, IDC_SPLIT_H, 0); return 0;
             case 'K': PostMessageW(g_app.main, WM_COMMAND, IDC_QUICKCMD, 0); return 0;
             case 'S': PostMessageW(g_app.main, WM_COMMAND, IDC_SFTP, 0); return 0;
+            case 'P': PostMessageW(g_app.main, WM_COMMAND, IDC_PALETTE, 0); return 0;
             default: tv->suppress_char = 0; break;
             }
         }

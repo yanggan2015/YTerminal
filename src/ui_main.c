@@ -179,8 +179,12 @@ static LRESULT CALLBACK TabBarProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             AppendMenuW(m, MF_STRING, 1, L"重命名标签…");
             AppendMenuW(m, MF_STRING, 2, L"复制会话");
             AppendMenuW(m, MF_STRING, 3, L"重连");
+            AppendMenuW(m, MF_STRING, 7, L"复制标签标题");
+            AppendMenuW(m, MF_STRING, 8, L"命令面板…");
             AppendMenuW(m, MF_SEPARATOR, 0, NULL);
             AppendMenuW(m, MF_STRING, 4, L"关闭标签");
+            AppendMenuW(m, MF_STRING, 5, L"关闭其他标签");
+            AppendMenuW(m, MF_STRING, 6, L"关闭右侧标签");
             POINT pt; GetCursorPos(&pt);
             int cmd = (int)TrackPopupMenu(m, TPM_RETURNCMD | TPM_LEFTALIGN, pt.x, pt.y, 0, h, NULL);
             DestroyMenu(m);
@@ -188,6 +192,10 @@ static LRESULT CALLBACK TabBarProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             else if (cmd == 2) PostMessageW(g_app.main, WM_COMMAND, IDC_DUPLICATE, 0);
             else if (cmd == 3) PostMessageW(g_app.main, WM_COMMAND, IDC_RECONNECT, 0);
             else if (cmd == 4) PostMessageW(g_app.main, WM_COMMAND, IDC_CLOSE_TAB, 0);
+            else if (cmd == 5) PostMessageW(g_app.main, WM_COMMAND, IDC_CLOSE_OTHERS, 0);
+            else if (cmd == 6) PostMessageW(g_app.main, WM_COMMAND, IDC_CLOSE_RIGHT, 0);
+            else if (cmd == 7) PostMessageW(g_app.main, WM_COMMAND, IDC_COPY_TAB_TITLE, 0);
+            else if (cmd == 8) PostMessageW(g_app.main, WM_COMMAND, IDC_PALETTE, 0);
         }
         return 0;
     }

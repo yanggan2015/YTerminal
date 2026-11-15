@@ -39,6 +39,15 @@
 #define IDC_SAVE_SESSION   1042
 #define IDC_EDIT_SESSION   1043
 #define IDC_DEL_SESSION    1044
+#define IDC_PALETTE        1050
+#define IDC_TUNNELS        1054
+#define IDC_CLOSE_OTHERS   1051
+#define IDC_CLOSE_RIGHT    1052
+#define IDC_COPY_TAB_TITLE 1053
+
+/* 命令面板 */
+#define IDC_PAL_EDIT       5001
+#define IDC_PAL_LIST       5002
 
 /* 侧边栏 */
 #define IDC_TREE           2001
@@ -114,5 +123,6 @@
 #define IDC_SET_DOWNLOAD   4025
 #define IDC_SET_DOWNLOADB  4026
 #define IDC_SET_SMOOTH     4027
+#define IDC_SET_HIGHLIGHTS 4028
 
 #endif

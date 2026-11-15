@@ -1,4 +1,4 @@
-﻿# 无侵入式界面截图：用 PrintWindow 抓取被遮挡的 YTerminal 窗口
+# 无侵入式界面截图：用 PrintWindow 抓取被遮挡的 YTerminal 窗口
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File scripts\ui-shot.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\ui-shot.ps1 -SessionDialog
@@ -6,6 +6,8 @@
 
 param(
     [switch]$SessionDialog,
+    [int]$Command = 0,
+    [string]$ShotName = "ui_extra.png",
     [string]$OutDir = "build"
 )
 
@@ -60,6 +62,26 @@ if (-not $proc) {
 
 $main = [YShot]::Save($proc.MainWindowHandle, (Join-Path $resolvedOut "ui_check.png"))
 Write-Output "main window: $main"
+
+if ($Command -ne 0) {
+    [YShot]::PostMessageW($proc.MainWindowHandle, 0x0111, [IntPtr]$Command, [IntPtr]0) | Out-Null
+    Start-Sleep -Milliseconds 1400
+    $target = [IntPtr]::Zero
+    foreach ($h in [YShot]::ByPid([uint32]$proc.Id)) {
+        if ($h -eq $proc.MainWindowHandle) { continue }
+        $r = New-Object YShot+RECT
+        [YShot]::GetWindowRect($h, [ref]$r) | Out-Null
+        $w = $r.Right - $r.Left
+        if ($w -ge 400 -and $w -lt 1500) { $target = $h }
+    }
+    if ($target -ne [IntPtr]::Zero) {
+        $sz = [YShot]::Save($target, (Join-Path $resolvedOut $ShotName))
+        Write-Output ("command {0} window: {1}" -f $Command, $sz)
+        [YShot]::PostMessageW($target, 0x0010, [IntPtr]0, [IntPtr]0) | Out-Null
+    } else {
+        Write-Output ("command {0}: no window found" -f $Command)
+    }
+}
 
 if ($SessionDialog) {
     [YShot]::PostMessageW($proc.MainWindowHandle, 0x0111, [IntPtr]1001, [IntPtr]0) | Out-Null

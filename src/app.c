@@ -306,6 +306,7 @@ void app_remove_root(HWND root) {
     if (idx < 0) return;
     for (int i = idx; i < g_app.tab_count - 1; i++) g_app.roots[i] = g_app.roots[i + 1];
     g_app.tab_count--;
+    if (idx < g_app.active_tab) g_app.active_tab--;
     if (g_app.active_tab >= g_app.tab_count) g_app.active_tab = g_app.tab_count - 1;
     if (g_app.active_tab < 0) g_app.active_tab = 0;
     app_layout_content();
@@ -338,6 +339,25 @@ void app_close_tab(int index) {
 }
 
 void app_update_tab_title(HWND view) { if (g_app.tabbar) tabbar_refresh(g_app.tabbar); (void)view; }
+
+void app_close_other_tabs(void) {
+    if (g_app.tab_count <= 1) return;
+    int keep = g_app.active_tab;
+    for (int i = g_app.tab_count - 1; i >= 0; i--) {
+        if (i == keep) continue;
+        app_close_tab(i);
+        if (i < keep) keep--;
+    }
+    if (keep >= 0 && keep < g_app.tab_count) g_app.active_tab = keep;
+    app_layout_content();
+    if (g_app.tabbar) tabbar_refresh(g_app.tabbar);
+}
+
+void app_close_tabs_right(void) {
+    for (int i = g_app.tab_count - 1; i > g_app.active_tab; i--) app_close_tab(i);
+    app_layout_content();
+    if (g_app.tabbar) tabbar_refresh(g_app.tabbar);
+}
 void app_refresh_tabbar(void) { if (g_app.tabbar) tabbar_refresh(g_app.tabbar); }
 
 /* ================================================================== */
@@ -628,6 +648,18 @@ void app_command(UINT id) {
         break;
     }
     case IDC_RENAME_TAB: app_rename_active_tab(g_app.main); break;
+    case IDC_PALETTE: app_show_palette(g_app.main); break;
+    case IDC_TUNNELS: app_show_tunnels(g_app.main); break;
+    case IDC_CLOSE_OTHERS: app_close_other_tabs(); break;
+    case IDC_CLOSE_RIGHT: app_close_tabs_right(); break;
+    case IDC_COPY_TAB_TITLE: {
+        wchar_t title[192] = { 0 };
+        if (g_app.tab_count > 0) app_root_title(g_app.active_tab, title, 192);
+        char *u = wide_to_utf8(title);
+        if (u) { app_clipboard_set(u); app_status_set(L"已复制标签标题"); free(u); }
+        break;
+    }
+    case IDC_SHORTCUTS: app_show_shortcuts(g_app.main); break;
     case IDC_EXIT: PostMessageW(g_app.main, WM_CLOSE, 0, 0); break;
     default: break;
     }

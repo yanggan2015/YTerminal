@@ -110,6 +110,11 @@ void  app_restore_workspace(void);
 void  app_sessions_changed(void);
 void  app_command(UINT id);
 void  app_rename_active_tab(HWND parent);
+void  app_show_palette(HWND parent);
+void  app_close_other_tabs(void);
+void  app_close_tabs_right(void);
+void  app_show_shortcuts(HWND parent);
+void  app_show_tunnels(HWND parent);
 HWND  main_window_create(HINSTANCE inst);
 
 /* 各 UI 模块 */

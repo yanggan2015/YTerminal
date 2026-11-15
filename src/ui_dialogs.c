@@ -1,5 +1,6 @@
 #include "app.h"
 #include "ids.h"
+#include "core.h"
 #include "ui_term.h"
 #include <commctrl.h>
 #include <commdlg.h>
@@ -557,6 +558,23 @@ static void st_load(SettingsDlg *sd) {
     wset(sd->b.hwnd, IDC_SET_DOWNLOAD, s->download_dir);
     _snwprintf(buf, 32, L"%d", s->ssh_keepalive); buf[31] = 0;
     wset(sd->b.hwnd, IDC_SET_KEEPALIVE, buf);
+    {
+        wchar_t *hw = utf8_to_wide(s->highlights);
+        wchar_t hbuf[640];
+        int k = 0;
+        for (int i = 0; hw && hw[i] && k < 630; i++) {
+            wchar_t c = hw[i];
+            if (c == ';') {
+                if (k < 628) hbuf[k++] = '\r';
+                hbuf[k++] = '\n';
+                continue;
+            }
+            hbuf[k++] = c;
+        }
+        hbuf[k] = 0;
+        wset(sd->b.hwnd, IDC_SET_HIGHLIGHTS, hbuf);
+        free(hw);
+    }
 }
 
 static void st_collect(SettingsDlg *sd) {
@@ -582,6 +600,7 @@ static void st_collect(SettingsDlg *sd) {
     GetDlgItemTextW(sd->b.hwnd, IDC_SET_DOWNLOAD, wt, MAX_PATH * 2);
     wcsncpy(s->download_dir, wt, MAX_PATH * 2 - 1);
     s->ssh_keepalive = wint(sd->b.hwnd, IDC_SET_KEEPALIVE, 30);
+    wget(sd->b.hwnd, IDC_SET_HIGHLIGHTS, s->highlights, sizeof(s->highlights), "");
 }
 
 static void st_browse(SettingsDlg *sd, int id) {
@@ -667,7 +686,13 @@ static LRESULT CALLBACK SettingsProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         y += lh;
         mk_label(h, L"SSH 保活", lx, y + 3, app_dpi(80));
         mk_edit(h, IDC_SET_KEEPALIVE, L"30", x, y, app_dpi(80), app_dpi(24), ES_NUMBER);
-        y += app_dpi(44);
+        y += lh;
+        mk_label(h, L"高亮规则", lx, y + 3, app_dpi(80));
+        mk_label(h, L"（每行 文本=>#RRGGBB，可加 # 注释）", x + app_dpi(2), y + 3, app_dpi(300));
+        y += app_dpi(24);
+        mk_edit(h, IDC_SET_HIGHLIGHTS, L"", x, y, app_dpi(378), app_dpi(66),
+                ES_MULTILINE | ES_WANTRETURN | WS_VSCROLL);
+        y += app_dpi(76);
         mk_button(h, IDC_SET_OK, L"确定", app_dpi(430), y, app_dpi(90), app_dpi(30), 1);
         mk_button(h, IDC_SET_CANCEL, L"取消", app_dpi(526), y, app_dpi(80), app_dpi(30), 0);
 
@@ -720,7 +745,7 @@ void app_show_settings(HWND parent) {
     sd.s = g_app.set;
     HWND dlg = CreateWindowExW(WS_EX_DLGMODALFRAME, L"YSettingsDlg", L"YTerminal 设置",
                                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN,
-                               CW_USEDEFAULT, CW_USEDEFAULT, app_dpi(640), app_dpi(540),
+                               CW_USEDEFAULT, CW_USEDEFAULT, app_dpi(640), app_dpi(620),
                                parent, NULL, g_app.inst, &sd);
     if (dlg) modal_run(dlg, &sd.b.result);
 }
@@ -1039,4 +1064,256 @@ void app_quick_commands(HWND parent) {
                                CW_USEDEFAULT, CW_USEDEFAULT, app_dpi(490), app_dpi(380),
                                parent, NULL, g_app.inst, &cd);
     if (dlg) modal_run(dlg, &cd.b.result);
+}
+
+/* ================================================================== */
+/* 快捷键一览                                                           */
+/* ================================================================== */
+typedef struct { const wchar_t *key; const wchar_t *desc; } ScRow;
+static const ScRow g_sc[] = {
+    { L"Ctrl+T",        L"新建 SSH 会话" },
+    { L"Ctrl+Shift+T",  L"新建本地终端" },
+    { L"Ctrl+Tab",      L"新建标签" },
+    { L"Ctrl+W",        L"关闭标签" },
+    { L"Ctrl+Shift+C",  L"复制选区" },
+    { L"Ctrl+Shift+V",  L"粘贴" },
+    { L"Ctrl+Shift+F",  L"查找文本" },
+    { L"Esc",           L"关闭查找" },
+    { L"Ctrl+=",        L"放大字号" },
+    { L"Ctrl+-",        L"缩小字号" },
+    { L"Ctrl+0",        L"重置字号" },
+    { L"Ctrl+Shift+D",  L"上下分屏" },
+    { L"Ctrl+Shift+E",  L"左右分屏" },
+    { L"Ctrl+Shift+P",  L"命令面板" },
+    { L"Ctrl+Shift+K",  L"快捷命令与规则" },
+    { L"Ctrl+Shift+S",  L"SFTP 传输" },
+    { L"Ctrl+Shift+L",  L"日志记录开关" },
+    { L"Alt+字母",      L"发送 ESC 序列" },
+};
+#define SC_COUNT ((int)(sizeof(g_sc) / sizeof(g_sc[0])))
+#define SC_COLS 2
+#define SC_KEY_BASE 6100
+#define SC_DESC_BASE 6200
+
+static HBRUSH g_sc_bg = NULL;
+
+static void sc_make_label(HWND h, int id, const wchar_t *text, int x, int y, int w, int style) {
+    HWND l = CreateWindowExW(0, L"STATIC", text, WS_CHILD | WS_VISIBLE | SS_LEFT | style,
+                             x, y, w, app_dpi(24), h, (HMENU)(INT_PTR)id, g_app.inst, NULL);
+    SendMessageW(l, WM_SETFONT, (WPARAM)g_app.f_ui, TRUE);
+}
+
+static LRESULT CALLBACK ScProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+    case WM_CREATE: {
+        int rows = (SC_COUNT + SC_COLS - 1) / SC_COLS;
+        int colw = app_dpi(300), keyw = app_dpi(126);
+        for (int i = 0; i < SC_COUNT; i++) {
+            int col = i / rows, row = i % rows;
+            int x = app_dpi(24) + col * colw;
+            int y = app_dpi(72) + row * app_dpi(30);
+            sc_make_label(h, SC_KEY_BASE + i, g_sc[i].key, x, y, keyw, SS_RIGHT);
+            sc_make_label(h, SC_DESC_BASE + i, g_sc[i].desc, x + keyw + app_dpi(8), y, colw - keyw - app_dpi(18), SS_LEFT);
+        }
+        mk_button(h, IDC_DLG_OK, L"关闭", app_dpi(516), app_dpi(360), app_dpi(96), app_dpi(32), 1);
+        g_sc_bg = CreateSolidBrush(app_ui_bg());
+        return 0;
+    }
+    case WM_COMMAND:
+        if (LOWORD(wp) == IDC_DLG_OK) DestroyWindow(h);
+        return 0;
+    case WM_KEYDOWN:
+        if (wp == VK_ESCAPE) DestroyWindow(h);
+        return 0;
+    case WM_ERASEBKGND: return 1;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        BeginPaint(h, &ps);
+        RECT rc;
+        GetClientRect(h, &rc);
+        app_fill(ps.hdc, &rc, app_ui_bg());
+        RECT hd = { 0, 0, rc.right, app_dpi(52) };
+        app_fill(ps.hdc, &hd, app_ui_panel());
+        RECT bar = { 0, 0, rc.right, app_dpi(2) };
+        app_fill(ps.hdc, &bar, app_ui_accent());
+        RECT tr = { app_dpi(24), app_dpi(10), rc.right - app_dpi(24), app_dpi(42) };
+        app_draw_text(ps.hdc, L"键盘快捷键", &tr, g_app.f_ui, app_ui_accent(),
+                      DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        RECT fr = { app_dpi(24), rc.bottom - app_dpi(44), rc.right - app_dpi(140), rc.bottom - app_dpi(14) };
+        app_draw_text(ps.hdc, L"提示：标签上右键可关闭其他/右侧标签、复制标题", &fr, g_app.f_ui, app_ui_dim(),
+                      DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        EndPaint(h, &ps);
+        return 0;
+    }
+    case WM_CTLCOLORSTATIC: {
+        HDC dc = (HDC)wp;
+        int id = GetDlgCtrlID((HWND)lp);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, (id >= SC_KEY_BASE && id < SC_KEY_BASE + SC_COUNT) ? app_ui_dim() : app_ui_text());
+        return (LRESULT)g_sc_bg;
+    }
+    case WM_CLOSE: DestroyWindow(h); return 0;
+    case WM_DESTROY:
+        if (g_sc_bg) { DeleteObject(g_sc_bg); g_sc_bg = NULL; }
+        return 0;
+    }
+    return DefWindowProcW(h, msg, wp, lp);
+}
+
+void app_show_shortcuts(HWND parent) {
+    register_dlg(L"YScDlg", ScProc);
+    int result = 0;
+    HWND dlg = CreateWindowExW(WS_EX_DLGMODALFRAME, L"YScDlg", L"快捷键一览",
+                               WS_POPUP | WS_CAPTION | WS_SYSMENU,
+                               CW_USEDEFAULT, CW_USEDEFAULT, app_dpi(640), app_dpi(450),
+                               parent, NULL, g_app.inst, NULL);
+    if (dlg) modal_run(dlg, &result);
+}
+/* ================================================================== */
+/* 端口转发管理器                                                       */
+/* ================================================================== */
+typedef struct { DlgBase b; Session *s; char text[512]; } TunDlg;
+
+static LRESULT CALLBACK TunProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+    TunDlg *td = (TunDlg *)GetWindowLongPtrW(h, GWLP_USERDATA);
+    switch (msg) {
+    case WM_CREATE: {
+        CREATESTRUCTW *cs = (CREATESTRUCTW *)lp;
+        td = (TunDlg *)cs->lpCreateParams;
+        td->b.hwnd = h;
+        SetWindowLongPtrW(h, GWLP_USERDATA, (LONG_PTR)td);
+        mk_label(h, L"端口转发规则（每行一条，留空即无）", app_dpi(18), app_dpi(14), app_dpi(400));
+        mk_label(h, L"L:8080:localhost:80  ·  R:9000:db:5432  ·  D:1080", app_dpi(18), app_dpi(38), app_dpi(440));
+        wchar_t wtext[600];
+        int k = 0;
+        for (int i = 0; td->text[i] && k < 590; i++) {
+            char c = td->text[i];
+            if (c == ';' || c == ',') {
+                wtext[k++] = L'\r';
+                wtext[k++] = L'\n';
+            } else {
+                wtext[k++] = (wchar_t)c;
+            }
+        }
+        wtext[k] = 0;
+        mk_edit(h, IDC_DLG_TUNNELS, wtext, app_dpi(18), app_dpi(64), app_dpi(452), app_dpi(210),
+                ES_MULTILINE | ES_WANTRETURN | WS_VSCROLL);
+        mk_button(h, IDC_DLG_OK, L"保存", app_dpi(290), app_dpi(288), app_dpi(84), app_dpi(30), 1);
+        mk_button(h, IDC_DLG_CANCEL, L"取消", app_dpi(384), app_dpi(288), app_dpi(84), app_dpi(30), 0);
+        td->b.bg = CreateSolidBrush(app_ui_bg());
+        td->b.editbg = CreateSolidBrush(app_ui_panel());
+        return 0;
+    }
+    case WM_COMMAND: {
+        int id = LOWORD(wp);
+        if (id == IDC_DLG_OK) {
+            wchar_t wt[600];
+            GetDlgItemTextW(h, IDC_DLG_TUNNELS, wt, 590);
+            char raw[1024];
+            int n = 0;
+            for (int i = 0; wt[i] && n < 1000; i++) {
+                char c = (wt[i] < 0x80) ? (char)wt[i] : ' ';
+                if (c == '\r') continue;
+                if (c == '\n') c = ';';
+                raw[n++] = c;
+            }
+            raw[n] = 0;
+
+            char out[512];
+            int used = 0;
+            out[0] = 0;
+            char buf[1024];
+            strncpy(buf, raw, sizeof(buf) - 1);
+            buf[sizeof(buf) - 1] = 0;
+            char *p = buf;
+            int bad_line = 0, line_no = 0;
+            while (*p) {
+                line_no++;
+                char *e = p;
+                while (*e && *e != ';') e++;
+                char seg[160];
+                int len = (int)(e - p);
+                if (len > 150) len = 150;
+                memcpy(seg, p, (size_t)len);
+                seg[len] = 0;
+                p = (*e) ? e + 1 : e;
+                while (*p == ';' || *p == ' ' || *p == '\t') p++;
+                char t[160];
+                int s0 = 0, t0 = 0;
+                while (seg[s0] == ' ' || seg[s0] == '\t') s0++;
+                while (seg[s0]) t[t0++] = seg[s0++];
+                while (t0 > 0 && (t[t0 - 1] == ' ' || t[t0 - 1] == '\t')) t0--;
+                t[t0] = 0;
+                if (!t[0]) continue;
+                YtFwd f;
+                if (!yt_fwd_parse(t, &f)) { bad_line = line_no; break; }
+                char fb[128];
+                yt_fwd_format(&f, fb, sizeof(fb));
+                int fl = (int)strlen(fb);
+                if (used + fl + 2 < (int)sizeof(out)) {
+                    if (used) out[used++] = ';';
+                    memcpy(out + used, fb, (size_t)fl);
+                    used += fl;
+                    out[used] = 0;
+                }
+            }
+            if (bad_line) {
+                wchar_t msg[160];
+                _snwprintf(msg, 160, L"第 %d 行格式不正确。\n示例：L:8080:localhost:80 或 D:1080", bad_line);
+                msg[159] = 0;
+                MessageBoxW(h, msg, L"端口转发", MB_ICONWARNING);
+                return 0;
+            }
+            if (td->s) {
+                strncpy(td->s->tunnels, out, sizeof(td->s->tunnels) - 1);
+                td->s->tunnels[sizeof(td->s->tunnels) - 1] = 0;
+                int idx = sessions_find_index(&g_app.sessions, td->s->id);
+                if (idx >= 0) {
+                    strncpy(g_app.sessions.items[idx].tunnels, out, sizeof(td->s->tunnels) - 1);
+                    sessions_save(&g_app.sessions);
+                }
+                app_status_set(L"端口转发已保存，重连后生效");
+            }
+            td->b.result = 1;
+            DestroyWindow(h);
+        } else if (id == IDC_DLG_CANCEL) DestroyWindow(h);
+        return 0;
+    }
+    case WM_PAINT: {
+        PAINTSTRUCT ps; BeginPaint(h, &ps);
+        RECT rc; GetClientRect(h, &rc);
+        app_fill(ps.hdc, &rc, app_ui_bg());
+        EndPaint(h, &ps);
+        return 0;
+    }
+    case WM_CTLCOLORSTATIC: {
+        HDC dc = (HDC)wp; SetTextColor(dc, app_ui_text()); SetBkColor(dc, app_ui_bg());
+        return (LRESULT)td->b.bg;
+    }
+    case WM_CTLCOLOREDIT: {
+        HDC dc = (HDC)wp; SetTextColor(dc, app_ui_text()); SetBkColor(dc, app_ui_panel());
+        return (LRESULT)td->b.editbg;
+    }
+    case WM_ERASEBKGND: return 1;
+    case WM_CLOSE: DestroyWindow(h); return 0;
+    case WM_DESTROY:
+        if (td->b.bg) DeleteObject(td->b.bg);
+        if (td->b.editbg) DeleteObject(td->b.editbg);
+        return 0;
+    }
+    return DefWindowProcW(h, msg, wp, lp);
+}
+
+void app_show_tunnels(HWND parent) {
+    register_dlg(L"YTunDlg", TunProc);
+    TunDlg td;
+    ZeroMemory(&td, sizeof(td));
+    HWND v = app_active_view();
+    td.s = v ? term_view_session(v) : NULL;
+    if (td.s) strncpy(td.text, td.s->tunnels, sizeof(td.text) - 1);
+    HWND dlg = CreateWindowExW(WS_EX_DLGMODALFRAME, L"YTunDlg", L"端口转发",
+                               WS_POPUP | WS_CAPTION | WS_SYSMENU,
+                               CW_USEDEFAULT, CW_USEDEFAULT, app_dpi(500), app_dpi(380),
+                               parent, NULL, g_app.inst, &td);
+    if (dlg) modal_run(dlg, &td.b.result);
 }
