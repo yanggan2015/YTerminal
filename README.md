@@ -2,6 +2,8 @@
 
 纯 C 编写的 Windows 全能终端：单文件 EXE、零运行时依赖，对标 WindTerm / SecureCRT / MobaXterm。
 
+> 仓库：<https://github.com/yanggan2015/YTerminal> ・ 下载：<https://github.com/yanggan2015/YTerminal/releases>
+
 ![主界面](docs/images/ui_main.png)
 
 - **248 KB** 单文件（`YTerminal.exe`），无 Python、无 Electron、无 .NET、无 VC++ 运行库
