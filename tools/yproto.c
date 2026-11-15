@@ -133,18 +133,28 @@ int main(int argc, char **argv) {
     }
 
     if (strcmp(mode, "xprobe") == 0) {
-        u8 c = 'C';
-        ser_put(&s, &c, 1);
-        Sleep(60);
-        long long end = now_ms() + 3000;
-        int cnt = 0;
-        while (now_ms() < end && cnt < 300) {
-            u8 b[64];
-            int n = ser_get(&s, b, 64, 60);
-            for (int i = 0; i < n && cnt < 300; i++, cnt++) printf("%02x ", b[i]);
-            if (n) printf("\n");
+        /* 反复送 'C' 直到对端开始发块，然后把第一块（131 字节）原样落盘 */
+        long long end = now_ms() + 8000;
+        u8 blk[200];
+        int got = 0;
+        while (now_ms() < end && !got) {
+            u8 c = 'C';
+            ser_put(&s, &c, 1);
+            long long slice = now_ms() + 200;
+            while (now_ms() < slice) {
+                u8 b[64];
+                int n = ser_get(&s, b, 64, 40);
+                for (int i = 0; i < n; i++) {
+                    if (blk[0] == 0 && b[i] != 0x01 && b[i] != 0x02) continue;
+                    if (got < (int)sizeof(blk)) blk[got++] = b[i];
+                }
+                if (got >= 3 + 128) { got = -got; break; }
+            }
+            if (got < 0) { got = -got; break; }
         }
-        printf("\n[xprobe done]\n");
+        FILE *f = fopen("build\\blk.bin", "wb");
+        if (f) { fwrite(blk, 1, (size_t)(got > 0 ? got : 0), f); fclose(f); }
+        printf("[xprobe] captured %d bytes -> build\\blk.bin\n", got > 0 ? got : 0);
         CloseHandle(h);
         return 0;
     }
