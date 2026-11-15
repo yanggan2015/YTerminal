@@ -1,4 +1,5 @@
 #include "yt_core.h"
+#include "log_ring.h"
 
 void yt_session_init(YtSession *s)
 {
@@ -14,20 +15,21 @@ void yt_session_init(YtSession *s)
     wcscpy(s->shell, L"powershell");
     wcscpy(s->com, L"COM3");
     s->state = YT_ST_IDLE;
+    s->ring = NULL; /* 懒创建，书签 profile 不占 256KB */
 }
 
 void yt_session_post_out(YtSession *s, const char *buf, int n)
 {
     char *p;
-    if (!s || !s->hwnd_term || n <= 0) return;
+    if (!s || n <= 0) return;
+    if (!s->ring) s->ring = yt_ring_create(256 * 1024);
+    if (s->ring) yt_ring_append((YtRing *)s->ring, buf, n);
+    if (s->log_fp) fwrite(buf, 1, (size_t)n, s->log_fp);
+    if (!s->hwnd_term) return;
     p = (char *)malloc((size_t)n + 1);
     if (!p) return;
     memcpy(p, buf, (size_t)n);
     p[n] = 0;
-    if (s->log_fp) {
-        /* raw stream; avoid per-chunk timestamp + fflush (major lag) */
-        fwrite(buf, 1, (size_t)n, s->log_fp);
-    }
     if (!PostMessageW(s->hwnd_term, WM_YT_OUTPUT, (WPARAM)n, (LPARAM)p))
         free(p);
 }
@@ -73,6 +75,7 @@ void yt_session_free(YtSession *s)
 {
     yt_session_close(s);
     if (s->log_fp) { fclose(s->log_fp); s->log_fp = NULL; }
+    if (s->ring) { yt_ring_destroy((YtRing *)s->ring); s->ring = NULL; }
     DeleteCriticalSection(&s->lock);
 }
 

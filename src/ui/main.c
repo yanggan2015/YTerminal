@@ -1,6 +1,7 @@
 #include "yt_core.h"
 #include "app.h"
 #include "win_ui_bridge.h"
+#include "yt_agent.h"
 #include <shellapi.h>
 #ifndef EM_SETCUEBANNER
 #define EM_SETCUEBANNER 0x1501
@@ -946,6 +947,12 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         g.hwnd = hwnd; /* G-01: 先于 create_ui/终端创建 */
         create_ui(hwnd);
         yt_app_set_sync_hook(sync_hook);
+        {
+            YtAgentHooks ah;
+            ah.ntabs = yt_app_tab_count;
+            ah.tab_at = yt_app_tab_at;
+            yt_agent_set_hooks(&ah);
+        }
         ui_bridge_start(hwnd, 8086);
         ui_bridge_set_state_provider(on_state, NULL);
         yt_macro_load();

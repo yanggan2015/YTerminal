@@ -10,6 +10,7 @@
 
 #include "cJSON.h"
 #include "mongoose.h"
+#include "yt_agent.h"
 
 #include <commctrl.h>
 #include <stdarg.h>
@@ -581,7 +582,7 @@ static void ub_send_json(struct mg_connection *c, int status, char *json)
     mg_http_reply(c, status,
                   "Content-Type: application/json\r\n",
                   "%s", json ? json : "{}");
-    if (json) cJSON_free(json);
+    free(json); /* cJSON_Print 与 _strdup 均走 CRT malloc */
 }
 
 static int ub_invoke(const char *id, const char *action, const char *text, int value,
@@ -710,12 +711,43 @@ static void ub_http(struct mg_connection *c, int ev, void *ev_data)
         cJSON *o = cJSON_CreateObject();
         cJSON_AddBoolToObject(o, "ok", 1);
         cJSON_AddStringToObject(o, "service", "win_ui_bridge");
+        cJSON_AddStringToObject(o, "agent", "yt_agent");
         char *json = cJSON_PrintUnformatted(o);
         cJSON_Delete(o);
         ub_send_json(c, 200, json);
         return;
     }
+    /* Agent 控制面（ssh-bridge 风格） */
+    {
+        char method[16] = {0}, uri[256] = {0}, query[512] = {0}, body[8192] = {0};
+        int st = 0, is_text = 0;
+        char *out = NULL;
+        size_t blen = (size_t)hm->body.len;
+        if ((size_t)hm->method.len < sizeof(method))
+            memcpy(method, hm->method.buf, (size_t)hm->method.len);
+        if ((size_t)hm->uri.len < sizeof(uri))
+            memcpy(uri, hm->uri.buf, (size_t)hm->uri.len);
+        if ((size_t)hm->query.len < sizeof(query))
+            memcpy(query, hm->query.buf, (size_t)hm->query.len);
+        if (blen >= sizeof(body)) blen = sizeof(body) - 1;
+        if (blen) memcpy(body, hm->body.buf, blen);
+        if (yt_agent_try(method, uri, query, body, &st, &out, &is_text)) {
+            if (is_text) {
+                mg_http_reply(c, st, "Content-Type: text/plain; charset=utf-8\r\n",
+                              "%s", out ? out : "");
+                free(out);
+            } else {
+                ub_send_json(c, st, out);
+            }
+            return;
+        }
+    }
     ub_send_json(c, 404, NULL);
+}
+
+const char *ui_bridge_token(void)
+{
+    return g_token;
 }
 
 /* ------------------------------------------------------------------ 生命周期 */

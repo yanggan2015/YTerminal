@@ -13,6 +13,17 @@ int yt_app_cur_tab(void)
     return (int)SendMessageW(g.tab, TCM_GETCURSEL, 0, 0);
 }
 
+int yt_app_tab_count(void)
+{
+    return g.ntabs;
+}
+
+YtSession *yt_app_tab_at(int i)
+{
+    if (i < 0 || i >= g.ntabs) return NULL;
+    return g.sess[i];
+}
+
 int yt_app_kind_sel(void)
 {
     if (!g.cmb) return 0;

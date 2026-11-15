@@ -7,7 +7,7 @@ New-Item -ItemType Directory -Force -Path $build | Out-Null
 
 $cflags = @(
   '-O2','-Wall','-DUNICODE','-D_UNICODE','-DUI_BRIDGE_ENABLE','-D_WIN32_WINNT=0x0A00',
-  "-I$root\src\core","-I$root\src\ui","-I$root\bridge","-I$root\third_party","-I$tp\include"
+  "-I$root\src\core","-I$root\src\ui","-I$root\src\agent","-I$root\bridge","-I$root\third_party","-I$tp\include"
 )
 $ld = @("-L$tp\lib",'-lssh2','-lssl','-lcrypto','-lz','-lws2_32','-lcrypt32','-luser32','-lgdi32','-lcomctl32','-lcomdlg32','-ladvapi32','-lshell32','-lole32')
 $src = @(
@@ -23,6 +23,9 @@ $src = @(
   "$root\src\core\session.c",
   "$root\src\core\window_store.c",
   "$root\src\core\features.c",
+  "$root\src\core\log_ring.c",
+  "$root\src\core\key_chars.c",
+  "$root\src\agent\yt_agent.c",
   "$root\src\engine\ssh_session.c",
   "$root\src\engine\ssh_async.c",
   "$root\src\engine\local_pty.c",

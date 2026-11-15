@@ -99,6 +99,7 @@ struct YtSession {
     BOOL locked; /* 锁定输入防误操作 */
     FILE *log_fp;
     void *sftp; /* SFTP handle when SSH */
+    void *ring; /* YtRing* 输出环形缓冲，供 Agent 增量读 */
 };
 
 typedef struct {

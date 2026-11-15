@@ -11,7 +11,8 @@ New-Item -ItemType Directory -Force -Path $dist, "$dist\config", "$dist\logs", "
 
 $cflags = @(
   '-O2','-Wall','-DUNICODE','-D_UNICODE','-D_WIN32_WINNT=0x0A00',
-  "-I$root\src\core","-I$root\src\ui","-I$root\bridge","-I$root\third_party","-I$tp\include"
+  "-I$root\src\core","-I$root\src\ui","-I$root\src\agent","-I$root\bridge","-I$root\third_party","-I$tp\include",
+  '-DUI_BRIDGE_ENABLE'
 )
 $ld = @("-L$tp\lib",'-lssh2','-lssl','-lcrypto','-lz','-lws2_32','-lcrypt32','-luser32','-lgdi32','-lcomctl32','-lcomdlg32','-ladvapi32','-lshell32','-lole32')
 $src = @(
@@ -19,12 +20,14 @@ $src = @(
   "$root\src\ui\term_view.c","$root\src\ui\ui_extra.c",
   "$root\src\core\paths.c","$root\src\core\cred_store.c","$root\src\core\profile_store.c","$root\src\core\session.c",
   "$root\src\core\window_store.c","$root\src\core\features.c",
+  "$root\src\core\log_ring.c","$root\src\core\key_chars.c","$root\src\agent\yt_agent.c",
   "$root\src\engine\ssh_session.c","$root\src\engine\ssh_async.c","$root\src\engine\local_pty.c","$root\src\engine\serial_session.c",
   "$root\src\engine\telnet_session.c",
-  "$root\src\engine\sftp.c","$root\src\engine\forward.c","$root\src\engine\zmodem.c","$root\src\engine\remotes.c"
+  "$root\src\engine\sftp.c","$root\src\engine\forward.c","$root\src\engine\zmodem.c","$root\src\engine\remotes.c",
+  "$root\bridge\win_ui_bridge.c","$root\third_party\mongoose.c","$root\third_party\cJSON.c"
 )
 
-Write-Host 'Release build (no bridge)...'
+Write-Host 'Release build (with Agent API on 127.0.0.1)...'
 gcc @cflags -o "$dist\YTerminal.exe" @src -mwindows -municode '-Wl,--stack,8388608' @ld
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

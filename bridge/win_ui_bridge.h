@@ -66,6 +66,9 @@ void ui_bridge_log(const char *fmt, ...);
 /* 在 WndProc 开头调用。返回 TRUE 表示消息已被消费。 */
 BOOL ui_bridge_handle_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
+/* 读取当前桥接令牌（只读缓冲，可能为空）。 */
+const char *ui_bridge_token(void);
+
 #endif /* UI_BRIDGE_ENABLE */
 
 #ifdef __cplusplus

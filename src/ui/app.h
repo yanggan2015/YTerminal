@@ -37,6 +37,8 @@ extern App g;
 
 void yt_app_set_status(const wchar_t *s);
 int  yt_app_cur_tab(void);
+int  yt_app_tab_count(void);
+YtSession *yt_app_tab_at(int i);
 int  yt_app_kind_sel(void);
 void yt_app_layout(void);
 int  yt_app_add_tab(YtSession *s);
