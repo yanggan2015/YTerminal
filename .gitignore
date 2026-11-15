@@ -1,0 +1,17 @@
+# 构建产物
+build/
+*.o
+*.exe
+*.obj
+*.res
+
+# 第三方参考源码（体积大，不入库）
+参考/
+
+# 本地/临时
+*.log
+*.tmp
+*.bak
+.vs/
+.vscode/
+*.user
