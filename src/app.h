@@ -114,6 +114,7 @@ void  app_show_palette(HWND parent);
 void  app_close_other_tabs(void);
 void  app_close_tabs_right(void);
 void  app_show_shortcuts(HWND parent);
+void  app_show_keymap(HWND parent);
 void  app_show_tunnels(HWND parent);
 HWND  main_window_create(HINSTANCE inst);
 

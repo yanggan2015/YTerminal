@@ -67,7 +67,7 @@ $kids = [YSmoke]::Kids($main)
 Check "主窗口子控件" ($kids.Count -ge 6) ("子控件 " + $kids.Count + " 个：" + (($kids | ForEach-Object { [YSmoke]::Cls($_) }) -join ","))
 
 # 命令面板 / 快捷键 / 端口转发 / 设置：验证弹出窗口并截图留档
-foreach ($c in @(@(1050,"ui_palette.png"),@(1041,"ui_shortcuts.png"),@(1054,"ui_tunnels.png"),@(1034,"ui_settings.png"))) {
+foreach ($c in @(@(1050,"ui_palette.png"),@(1041,"ui_shortcuts.png"),@(1054,"ui_tunnels.png"),@(1034,"ui_settings.png"),@(1045,"ui_keymap.png"))) {
     $id = $c[0]
     [YSmoke]::PostMessageW($main, 0x0111, [IntPtr]$id, [IntPtr]0) | Out-Null
     Start-Sleep -Milliseconds 1500
@@ -84,6 +84,21 @@ foreach ($c in @(@(1050,"ui_palette.png"),@(1041,"ui_shortcuts.png"),@(1054,"ui_
     Start-Sleep -Milliseconds 400
 }
 
+# 快捷键设置：类名、条目数、首项文案、录制/保存按钮
+[YSmoke]::PostMessageW($main, 0x0111, [IntPtr]1045, [IntPtr]0) | Out-Null
+Start-Sleep -Seconds 1
+$km = [YSmoke]::ByClass([uint32]$proc.Id, "YKmDlg")
+Check "快捷键设置窗口" ($km -ne [IntPtr]::Zero) ("hwnd=" + $km)
+if ($km -ne [IntPtr]::Zero) {
+    $kl = [YSmoke]::ById($km, 4201)
+    Check "快捷键列表存在" ($kl -ne [IntPtr]::Zero) ""
+    $kn = [YSmoke]::Count($kl)
+    Check "快捷键条目 >= 16" ($kn -ge 16) ("条数=" + $kn)
+    $k0 = if ($kn -gt 0) { [YSmoke]::Item($kl, 0) } else { "" }
+    Check "首项是复制选区" ($k0 -match "复制选区") ("首项=[" + $k0 + "]")
+    Check "修改/保存按钮存在" (([YSmoke]::ById($km, 4203) -ne [IntPtr]::Zero) -and ([YSmoke]::ById($km, 4205) -ne [IntPtr]::Zero)) ""
+    [YSmoke]::PostMessageW($km, 0x0010, [IntPtr]0, [IntPtr]0) | Out-Null
+}
 # SFTP 双栏：验证窗口、两个列表、本地列表内容（可捕捉 UNICODE 宏错配）
 [YSmoke]::PostMessageW($main, 0x0111, [IntPtr]1033, [IntPtr]0) | Out-Null
 Start-Sleep -Seconds 2

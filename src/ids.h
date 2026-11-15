@@ -40,6 +40,7 @@
 #define IDC_EDIT_SESSION   1043
 #define IDC_DEL_SESSION    1044
 #define IDC_PALETTE        1050
+#define IDC_KEYMAP         1045
 #define IDC_TUNNELS        1054
 #define IDC_CLOSE_OTHERS   1051
 #define IDC_CLOSE_RIGHT    1052
@@ -124,5 +125,14 @@
 #define IDC_SET_DOWNLOADB  4026
 #define IDC_SET_SMOOTH     4027
 #define IDC_SET_HIGHLIGHTS 4028
+
+/* 快捷键设置对话框 */
+#define IDC_KM_LIST        4201
+#define IDC_KM_TIP         4202
+#define IDC_KM_CHANGE      4203
+#define IDC_KM_RESET       4204
+#define IDC_KM_SAVE        4205
+#define IDC_KM_CANCEL      4206
+#define IDC_KM_DEFAULTALL  4207
 
 #endif

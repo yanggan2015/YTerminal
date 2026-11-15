@@ -98,6 +98,7 @@ typedef struct {
     char highlights[512];  /* 高亮规则：文本=>#RRGGBB，分号/换行分隔 */
     int win_x, win_y, win_w, win_h;  /* 上次窗口位置尺寸，-1 表示未保存 */
     int split_v_pct, split_h_pct;    /* 左右/上下分屏比例（百分比），默认 50 */
+    char keys[1024];                  /* 快捷键："i=Ctrl+Shift+C;" 形式，空则用默认 */
 } Settings;
 
 /* ---- 数据目录 ---- */

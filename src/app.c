@@ -675,6 +675,7 @@ void app_command(UINT id) {
         break;
     }
     case IDC_SHORTCUTS: app_show_shortcuts(g_app.main); break;
+    case IDC_KEYMAP: app_show_keymap(g_app.main); break;
     case IDC_EXIT: PostMessageW(g_app.main, WM_CLOSE, 0, 0); break;
     default: break;
     }

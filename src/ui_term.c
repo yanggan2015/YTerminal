@@ -1,5 +1,6 @@
 #include "app.h"
 #include "ids.h"
+#include "keymap.h"
 #include "core.h"
 #include <commctrl.h>
 #include <imm.h>
@@ -1309,30 +1310,13 @@ static LRESULT CALLBACK TermProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         int alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
 
         tv->suppress_char = 0;
-        if (ctrl && shift) {
-            tv->suppress_char = 1;
-            switch (wp) {
-            case 'C': tv_copy_selection(tv); return 0;
-            case 'V': PostMessageW(g_app.main, WM_COMMAND, IDC_PASTE, 0); return 0;
-            case 'F': tv_show_search(tv, 1); return 0;
-            case 'L': PostMessageW(g_app.main, WM_COMMAND, IDC_LOG, 0); return 0;
-            case 'D': PostMessageW(g_app.main, WM_COMMAND, IDC_SPLIT_V, 0); return 0;
-            case 'E': PostMessageW(g_app.main, WM_COMMAND, IDC_SPLIT_H, 0); return 0;
-            case 'K': PostMessageW(g_app.main, WM_COMMAND, IDC_QUICKCMD, 0); return 0;
-            case 'S': PostMessageW(g_app.main, WM_COMMAND, IDC_SFTP, 0); return 0;
-            case 'P': PostMessageW(g_app.main, WM_COMMAND, IDC_PALETTE, 0); return 0;
-            default: tv->suppress_char = 0; break;
-            }
-        }
-        if (ctrl) {
-            switch (wp) {
-            case 'W': PostMessageW(g_app.main, WM_COMMAND, IDC_CLOSE_TAB, 0); return 0;
-            case VK_TAB: PostMessageW(g_app.main, WM_COMMAND, IDC_NEW_TAB, 0); return 0;
-            case VK_OEM_PLUS: case VK_ADD: PostMessageW(g_app.main, WM_COMMAND, IDC_FONT_INC, 0); return 0;
-            case VK_OEM_MINUS: case VK_SUBTRACT: PostMessageW(g_app.main, WM_COMMAND, IDC_FONT_DEC, 0); return 0;
-            case '0': PostMessageW(g_app.main, WM_COMMAND, IDC_FONT_RESET, 0); return 0;
-            case VK_F11: return 0;
-            default: break;
+        /* 可自定义快捷键：查表命中即派发命令（用户可改键/解绑） */
+        {
+            int cmd = yt_key_lookup(ctrl, shift, alt, (int)wp);
+            if (cmd) {
+                tv->suppress_char = 1;
+                PostMessageW(g_app.main, WM_COMMAND, (WPARAM)cmd, 0);
+                return 0;
             }
         }
         if (alt && !ctrl) {

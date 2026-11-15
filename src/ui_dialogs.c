@@ -1,6 +1,7 @@
 #include "app.h"
 #include "ids.h"
 #include "core.h"
+#include "keymap.h"
 #include "ui_term.h"
 #include <commctrl.h>
 #include <commdlg.h>
@@ -1069,28 +1070,14 @@ void app_quick_commands(HWND parent) {
 /* ================================================================== */
 /* 快捷键一览                                                           */
 /* ================================================================== */
+/* 固定键（不可自定义的终端行为）追加在一览末尾 */
 typedef struct { const wchar_t *key; const wchar_t *desc; } ScRow;
-static const ScRow g_sc[] = {
-    { L"Ctrl+T",        L"新建 SSH 会话" },
-    { L"Ctrl+Shift+T",  L"新建本地终端" },
-    { L"Ctrl+Tab",      L"新建标签" },
-    { L"Ctrl+W",        L"关闭标签" },
-    { L"Ctrl+Shift+C",  L"复制选区" },
-    { L"Ctrl+Shift+V",  L"粘贴" },
-    { L"Ctrl+Shift+F",  L"查找文本" },
-    { L"Esc",           L"关闭查找" },
-    { L"Ctrl+=",        L"放大字号" },
-    { L"Ctrl+-",        L"缩小字号" },
-    { L"Ctrl+0",        L"重置字号" },
-    { L"Ctrl+Shift+D",  L"上下分屏" },
-    { L"Ctrl+Shift+E",  L"左右分屏" },
-    { L"Ctrl+Shift+P",  L"命令面板" },
-    { L"Ctrl+Shift+K",  L"快捷命令与规则" },
-    { L"Ctrl+Shift+S",  L"SFTP 传输" },
-    { L"Ctrl+Shift+L",  L"日志记录开关" },
-    { L"Alt+字母",      L"发送 ESC 序列" },
+static const ScRow g_sc_extra[] = {
+    { L"Esc",      L"关闭查找 / 对话框" },
+    { L"Alt+字母", L"发送 ESC 序列" },
+    { L"Shift+Tab",L"发送反向 Tab" },
 };
-#define SC_COUNT ((int)(sizeof(g_sc) / sizeof(g_sc[0])))
+#define SC_EXTRA ((int)(sizeof(g_sc_extra) / sizeof(g_sc_extra[0])))
 #define SC_COLS 2
 #define SC_KEY_BASE 6100
 #define SC_DESC_BASE 6200
@@ -1106,21 +1093,35 @@ static void sc_make_label(HWND h, int id, const wchar_t *text, int x, int y, int
 static LRESULT CALLBACK ScProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_CREATE: {
-        int rows = (SC_COUNT + SC_COLS - 1) / SC_COLS;
+        int n = yt_key_count() + SC_EXTRA;
+        int rows = (n + SC_COLS - 1) / SC_COLS;
         int colw = app_dpi(300), keyw = app_dpi(126);
-        for (int i = 0; i < SC_COUNT; i++) {
+        for (int i = 0; i < n; i++) {
             int col = i / rows, row = i % rows;
             int x = app_dpi(24) + col * colw;
-            int y = app_dpi(72) + row * app_dpi(30);
-            sc_make_label(h, SC_KEY_BASE + i, g_sc[i].key, x, y, keyw, SS_RIGHT);
-            sc_make_label(h, SC_DESC_BASE + i, g_sc[i].desc, x + keyw + app_dpi(8), y, colw - keyw - app_dpi(18), SS_LEFT);
+            int y = app_dpi(86) + row * app_dpi(26);
+            const wchar_t *desc;
+            wchar_t key[64];
+            if (i < yt_key_count()) {
+                yt_key_display(i, key, 64);
+                desc = yt_key_def(i)->name;
+            } else {
+                const ScRow *r = &g_sc_extra[i - yt_key_count()];
+                wcsncpy(key, r->key, 64); key[63] = 0;
+                desc = r->desc;
+            }
+            sc_make_label(h, SC_KEY_BASE + i, key, x, y, keyw, SS_RIGHT);
+            sc_make_label(h, SC_DESC_BASE + i, desc, x + keyw + app_dpi(8), y,
+                          colw - keyw - app_dpi(18), SS_LEFT);
         }
-        mk_button(h, IDC_DLG_OK, L"关闭", app_dpi(516), app_dpi(360), app_dpi(96), app_dpi(32), 1);
+        mk_button(h, IDC_KEYMAP, L"自定义…", app_dpi(410), app_dpi(408), app_dpi(96), app_dpi(32), 0);
+        mk_button(h, IDC_DLG_OK, L"关闭", app_dpi(516), app_dpi(408), app_dpi(96), app_dpi(32), 1);
         g_sc_bg = CreateSolidBrush(app_ui_bg());
         return 0;
     }
     case WM_COMMAND:
         if (LOWORD(wp) == IDC_DLG_OK) DestroyWindow(h);
+        else if (LOWORD(wp) == IDC_KEYMAP) { DestroyWindow(h); app_show_keymap(g_app.main); }
         return 0;
     case WM_KEYDOWN:
         if (wp == VK_ESCAPE) DestroyWindow(h);
@@ -1139,9 +1140,9 @@ static LRESULT CALLBACK ScProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         RECT tr = { app_dpi(24), app_dpi(10), rc.right - app_dpi(24), app_dpi(42) };
         app_draw_text(ps.hdc, L"键盘快捷键", &tr, g_app.f_ui, app_ui_accent(),
                       DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-        RECT fr = { app_dpi(24), rc.bottom - app_dpi(44), rc.right - app_dpi(140), rc.bottom - app_dpi(14) };
-        app_draw_text(ps.hdc, L"提示：标签上右键可关闭其他/右侧标签、复制标题", &fr, g_app.f_ui, app_ui_dim(),
-                      DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        RECT sub = { app_dpi(24), app_dpi(52), rc.right - app_dpi(24), app_dpi(80) };
+        app_draw_text(ps.hdc, L"点「自定义…」可改键或解绑，保存后立即生效", &sub,
+                      g_app.f_ui, app_ui_dim(), DT_LEFT | DT_VCENTER | DT_SINGLELINE);
         EndPaint(h, &ps);
         return 0;
     }
@@ -1149,7 +1150,7 @@ static LRESULT CALLBACK ScProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         HDC dc = (HDC)wp;
         int id = GetDlgCtrlID((HWND)lp);
         SetBkMode(dc, TRANSPARENT);
-        SetTextColor(dc, (id >= SC_KEY_BASE && id < SC_KEY_BASE + SC_COUNT) ? app_ui_dim() : app_ui_text());
+        SetTextColor(dc, (id >= SC_KEY_BASE && id < SC_KEY_BASE + yt_key_count() + SC_EXTRA) ? app_ui_dim() : app_ui_text());
         return (LRESULT)g_sc_bg;
     }
     case WM_CLOSE: DestroyWindow(h); return 0;
@@ -1165,7 +1166,204 @@ void app_show_shortcuts(HWND parent) {
     int result = 0;
     HWND dlg = CreateWindowExW(WS_EX_DLGMODALFRAME, L"YScDlg", L"快捷键一览",
                                WS_POPUP | WS_CAPTION | WS_SYSMENU,
-                               CW_USEDEFAULT, CW_USEDEFAULT, app_dpi(640), app_dpi(450),
+                               CW_USEDEFAULT, CW_USEDEFAULT, app_dpi(640), app_dpi(520),
+                               parent, NULL, g_app.inst, NULL);
+    if (dlg) modal_run(dlg, &result);
+}
+
+/* ================================================================== */
+/* 快捷键设置（录制 + 冲突检测 + 恢复默认 + 保存）                        */
+/* ================================================================== */
+typedef struct {
+    DlgBase b;
+    int capture;
+    int sel;
+    char snapshot[1200];
+} KmDlg;
+
+static WNDPROC g_km_oldproc = NULL;
+
+static void km_refresh(HWND dlg) {
+    KmDlg *kd = (KmDlg *)GetWindowLongPtrW(dlg, GWLP_USERDATA);
+    HWND list = GetDlgItem(dlg, IDC_KM_LIST);
+    if (!list) return;
+    SendMessageW(list, LB_RESETCONTENT, 0, 0);
+    int n = yt_key_count();
+    for (int i = 0; i < n; i++) {
+        wchar_t key[64], row[160];
+        yt_key_display(i, key, 64);
+        _snwprintf(row, 160, L"%-14ls  %ls", yt_key_def(i)->name, key);
+        row[159] = 0;
+        SendMessageW(list, LB_ADDSTRING, 0, (LPARAM)row);
+    }
+    int sel = kd ? kd->sel : 0;
+    if (sel < 0 || sel >= n) sel = 0;
+    SendMessageW(list, LB_SETCURSEL, (WPARAM)sel, 0);
+}
+
+static void km_tip(HWND dlg, const wchar_t *text, int warn) {
+    HWND t = GetDlgItem(dlg, IDC_KM_TIP);
+    if (!t) return;
+    SetWindowTextW(t, text);
+    InvalidateRect(t, NULL, TRUE);
+}
+
+static void km_capture_start(HWND dlg) {
+    KmDlg *kd = (KmDlg *)GetWindowLongPtrW(dlg, GWLP_USERDATA);
+    HWND list = GetDlgItem(dlg, IDC_KM_LIST);
+    int sel = (int)SendMessageW(list, LB_GETCURSEL, 0, 0);
+    if (sel == LB_ERR) { km_tip(dlg, L"请先在列表里选中一项", 1); return; }
+    kd->sel = sel;
+    kd->capture = 1;
+    km_tip(dlg, L"请按下新的组合键（Esc 取消；至少带 Ctrl/Alt/Shift，或 F1–F12）", 0);
+}
+
+static LRESULT CALLBACK KmListProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+    HWND dlg = GetParent(h);
+    KmDlg *kd = dlg ? (KmDlg *)GetWindowLongPtrW(dlg, GWLP_USERDATA) : NULL;
+    if (msg == WM_KEYDOWN && kd && kd->capture) {
+        if (wp == VK_CONTROL || wp == VK_SHIFT || wp == VK_MENU || wp == VK_LWIN || wp == VK_RWIN)
+            return 0;
+        if (wp == VK_ESCAPE) {
+            kd->capture = 0;
+            km_tip(dlg, L"已取消，快捷键未改动", 0);
+            return 0;
+        }
+        int ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        int shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        int alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
+        int mods = (ctrl ? YT_KM_CTRL : 0) | (shift ? YT_KM_SHIFT : 0) | (alt ? YT_KM_ALT : 0);
+        int is_fkey = (wp >= VK_F1 && wp <= VK_F24);
+        if (!mods && !is_fkey) {
+            km_tip(dlg, L"单键容易误触：请带 Ctrl/Alt/Shift，或使用 F1–F12", 1);
+            return 0;
+        }
+        char spec[64];
+        yt_key_format(mods, (int)wp, spec, sizeof(spec));
+        int conflict = -1;
+        int rc = yt_key_bind(kd->sel, spec, &conflict);
+        kd->capture = 0;
+        if (rc == -2 && conflict >= 0) {
+            wchar_t msg2[256];
+            _snwprintf(msg2, 256, L"与「%ls」冲突，未修改", yt_key_def(conflict)->name);
+            msg2[255] = 0;
+            km_tip(dlg, msg2, 1);
+        } else if (rc != 0) {
+            km_tip(dlg, L"这个键无法识别，请重试", 1);
+        } else {
+            wchar_t msg2[256];
+            char disp[64];
+            yt_key_format(mods, (int)wp, disp, sizeof(disp));
+            _snwprintf(msg2, 256, L"已改为 %hs（点「保存」后写入配置）", disp);
+            msg2[255] = 0;
+            km_tip(dlg, msg2, 0);
+            km_refresh(dlg);
+        }
+        return 0;
+    }
+    return CallWindowProcW(g_km_oldproc, h, msg, wp, lp);
+}
+
+static LRESULT CALLBACK KmProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+    KmDlg *kd = (KmDlg *)GetWindowLongPtrW(h, GWLP_USERDATA);
+    switch (msg) {
+    case WM_CREATE: {
+        kd = (KmDlg *)calloc(1, sizeof(KmDlg));
+        kd->b.hwnd = h;
+        kd->sel = 0;
+        strncpy(kd->snapshot, yt_key_dump(), sizeof(kd->snapshot) - 1);
+        SetWindowLongPtrW(h, GWLP_USERDATA, (LONG_PTR)kd);
+
+        mk_label(h, L"选中一项后点「修改」，再按下新组合键；冲突会当场拦截。", app_dpi(24), app_dpi(62), app_dpi(560));
+        HWND list = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
+                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
+                                    app_dpi(24), app_dpi(92), app_dpi(592), app_dpi(288),
+                                    h, (HMENU)(INT_PTR)IDC_KM_LIST, g_app.inst, NULL);
+        SendMessageW(list, WM_SETFONT, (WPARAM)dfont(), TRUE);
+        SendMessageW(list, LB_SETITEMHEIGHT, 0, (LPARAM)app_dpi(24));
+        g_km_oldproc = (WNDPROC)SetWindowLongPtrW(list, GWLP_WNDPROC, (LONG_PTR)KmListProc);
+
+        HWND tip = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT,
+                                   app_dpi(24), app_dpi(400), app_dpi(592), app_dpi(44),
+                                   h, (HMENU)(INT_PTR)IDC_KM_TIP, g_app.inst, NULL);
+        SendMessageW(tip, WM_SETFONT, (WPARAM)dfont(), TRUE);
+
+        mk_button(h, IDC_KM_CHANGE, L"修改", app_dpi(24), app_dpi(452), app_dpi(88), app_dpi(32), 0);
+        mk_button(h, IDC_KM_DEFAULTALL, L"全部默认", app_dpi(120), app_dpi(452), app_dpi(96), app_dpi(32), 0);
+        mk_button(h, IDC_KM_SAVE, L"保存", app_dpi(408), app_dpi(452), app_dpi(96), app_dpi(32), 1);
+        mk_button(h, IDC_KM_CANCEL, L"取消", app_dpi(512), app_dpi(452), app_dpi(96), app_dpi(32), 0);
+
+        kd->b.bg = CreateSolidBrush(app_ui_bg());
+        km_refresh(h);
+        km_tip(h, L"提示：改完点「保存」立即生效，无需重启；「取消」会回滚本次所有改动。", 0);
+        return 0;
+    }
+    case WM_COMMAND: {
+        int id = LOWORD(wp);
+        if (id == IDC_KM_CHANGE) km_capture_start(h);
+        else if (id == IDC_KM_LIST && HIWORD(wp) == LBN_DBLCLK) km_capture_start(h);
+        else if (id == IDC_KM_DEFAULTALL) {
+            yt_key_reset_all();
+            km_refresh(h);
+            km_tip(h, L"已恢复全部默认（仍可继续修改，点「保存」才写入）", 0);
+        } else if (id == IDC_KM_SAVE) {
+            HWND list = GetDlgItem(h, IDC_KM_LIST);
+            kd->sel = (int)SendMessageW(list, LB_GETCURSEL, 0, 0);
+            strncpy(g_app.set.keys, yt_key_dump(), sizeof(g_app.set.keys) - 1);
+            g_app.set.keys[sizeof(g_app.set.keys) - 1] = 0;
+            settings_save(&g_app.set);
+            km_tip(h, L"已保存，快捷键立即生效", 0);
+            DestroyWindow(h);
+        } else if (id == IDC_KM_CANCEL) {
+            yt_key_load(kd->snapshot);
+            DestroyWindow(h);
+        }
+        return 0;
+    }
+    case WM_ERASEBKGND: return 1;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        BeginPaint(h, &ps);
+        RECT rc;
+        GetClientRect(h, &rc);
+        app_fill(ps.hdc, &rc, kd->b.bg ? app_ui_bg() : app_ui_bg());
+        RECT hd = { 0, 0, rc.right, app_dpi(52) };
+        app_fill(ps.hdc, &hd, app_ui_panel());
+        RECT bar = { 0, 0, rc.right, app_dpi(2) };
+        app_fill(ps.hdc, &bar, app_ui_accent());
+        RECT tr = { app_dpi(24), app_dpi(10), rc.right - app_dpi(24), app_dpi(42) };
+        app_draw_text(ps.hdc, L"快捷键设置", &tr, g_app.f_ui, app_ui_accent(),
+                      DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        EndPaint(h, &ps);
+        return 0;
+    }
+    case WM_CTLCOLORSTATIC: {
+        HDC dc = (HDC)wp;
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, app_ui_dim());
+        return (LRESULT)(kd && kd->b.bg ? kd->b.bg : (HBRUSH)GetStockObject(NULL_BRUSH));
+    }
+    case WM_CLOSE:
+        if (kd) yt_key_load(kd->snapshot);
+        DestroyWindow(h);
+        return 0;
+    case WM_DESTROY:
+        if (kd) {
+            if (kd->b.bg) DeleteObject(kd->b.bg);
+            free(kd);
+            SetWindowLongPtrW(h, GWLP_USERDATA, 0);
+        }
+        return 0;
+    }
+    return DefWindowProcW(h, msg, wp, lp);
+}
+
+void app_show_keymap(HWND parent) {
+    register_dlg(L"YKmDlg", KmProc);
+    int result = 0;
+    HWND dlg = CreateWindowExW(WS_EX_DLGMODALFRAME, L"YKmDlg", L"快捷键设置",
+                               WS_POPUP | WS_CAPTION | WS_SYSMENU,
+                               CW_USEDEFAULT, CW_USEDEFAULT, app_dpi(640), app_dpi(560),
                                parent, NULL, g_app.inst, NULL);
     if (dlg) modal_run(dlg, &result);
 }
