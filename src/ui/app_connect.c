@@ -35,12 +35,12 @@ void yt_app_do_connect(void)
     yt_app_fill_from_ui(s);
     if ((s->kind == YT_KIND_SSH || s->kind == YT_KIND_TELNET) && !s->host[0]) {
         yt_app_set_status(L"请填写主机");
-        DeleteCriticalSection(&s->lock); free(s);
+        yt_session_unref(s);
         return;
     }
     if (s->kind == YT_KIND_SERIAL && !s->com[0]) {
         yt_app_set_status(L"请填写 COM 口");
-        DeleteCriticalSection(&s->lock); free(s);
+        yt_session_unref(s);
         return;
     }
     if (!s->port) {
@@ -134,7 +134,7 @@ void yt_app_clone_cur(void)
         yt_app_add_tab(s);
         if (!yt_local_start(s)) yt_app_start_ok(s, FALSE); else yt_app_set_status(L"已连接");
     } else {
-        DeleteCriticalSection(&s->lock); free(s);
+        yt_session_unref(s);
         yt_app_set_status(L"无法克隆该类型");
     }
 }
@@ -168,6 +168,6 @@ void yt_app_reconnect_cur(void)
         yt_app_add_tab(s);
         if (!yt_telnet_start(s)) yt_app_start_ok(s, FALSE); else yt_app_set_status(L"已连接");
     } else {
-        DeleteCriticalSection(&s->lock); free(s);
+        yt_session_unref(s);
     }
 }

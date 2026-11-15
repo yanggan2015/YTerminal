@@ -493,36 +493,133 @@ static void paint_chrome(HWND hwnd)
     EndPaint(hwnd, &ps);
 }
 
+/* 切到 SSH 标签时绝不能在 UI 线程同步 listdir（会与 ssh_reader 抢锁/堵网络 → 未响应） */
+static volatile LONG g_sftp_busy;
+static volatile LONG g_sftp_pending;
+
+typedef struct {
+    YtSession *s;
+    HWND hwnd;
+    char cwd[YT_PATH_MAX];
+} SftpListJob;
+
+typedef struct {
+    YtSession *s;
+    int ok;
+    char *list;
+} SftpDoneMsg;
+
+static DWORD WINAPI sftp_list_thr(LPVOID arg)
+{
+    SftpListJob *j = (SftpListJob *)arg;
+    SftpDoneMsg *done = (SftpDoneMsg *)calloc(1, sizeof(*done));
+    char *list = (char *)malloc(16384);
+    int ok = 0;
+    if (list) {
+        list[0] = 0;
+        if (j->s && !j->s->dead) {
+            if (!j->s->sftp) j->s->sftp = yt_sftp_open(j->s);
+            if (j->s->sftp && !j->s->dead &&
+                yt_sftp_listdir(j->s->sftp, j->cwd, list, 16384) >= 0)
+                ok = 1;
+        }
+    }
+    if (done) {
+        done->s = j->s; /* 所有权交给 UI，apply 里 unref */
+        done->ok = ok;
+        done->list = list;
+        if (!PostMessageW(j->hwnd, WM_YT_SFTP_DONE, 0, (LPARAM)done)) {
+            yt_session_unref(j->s);
+            free(list);
+            free(done);
+        }
+    } else {
+        yt_session_unref(j->s);
+        free(list);
+        InterlockedExchange(&g_sftp_busy, 0);
+    }
+    free(j);
+    return 0;
+}
+
+static void refresh_sftp(void);
+
+static void apply_sftp_list(SftpDoneMsg *done)
+{
+    int cur;
+    char *line, *ctx = NULL;
+    InterlockedExchange(&g_sftp_busy, 0);
+    if (!done) {
+        if (InterlockedExchange(&g_sftp_pending, 0)) refresh_sftp();
+        return;
+    }
+    cur = yt_app_cur_tab();
+    if (!g.sftp_visible || cur < 0 || g.sess[cur] != done->s) {
+        yt_session_unref(done->s);
+        free(done->list);
+        free(done);
+        if (InterlockedExchange(&g_sftp_pending, 0)) refresh_sftp();
+        return;
+    }
+    SendMessageW(g.sftp, LB_RESETCONTENT, 0, 0);
+    SendMessageW(g.sftp, LB_ADDSTRING, 0, (LPARAM)L"D\t..");
+    if (!done->ok || !done->list) {
+        yt_app_set_status(L"SFTP 列表失败");
+    } else {
+        line = strtok_s(done->list, "\n", &ctx);
+        while (line) {
+            wchar_t w[512];
+            MultiByteToWideChar(CP_UTF8, 0, line, -1, w, 512);
+            SendMessageW(g.sftp, LB_ADDSTRING, 0, (LPARAM)w);
+            line = strtok_s(NULL, "\n", &ctx);
+        }
+        yt_app_set_status(L"SFTP 已刷新");
+        refresh_status_bar();
+    }
+    yt_session_unref(done->s);
+    free(done->list);
+    free(done);
+    if (InterlockedExchange(&g_sftp_pending, 0)) refresh_sftp();
+}
+
 static void refresh_sftp(void)
 {
     int cur = yt_app_cur_tab();
-    char list[8192], path[512];
-    char *line, *ctx = NULL;
+    char path[512];
     wchar_t wpath[520];
+    SftpListJob *job;
+    HANDLE thr;
+    YtSession *s;
     if (cur < 0 || !g.sess[cur] || g.sess[cur]->kind != YT_KIND_SSH) return;
-    if (!g.sess[cur]->sftp) g.sess[cur]->sftp = yt_sftp_open(g.sess[cur]);
-    if (!g.sess[cur]->sftp) { yt_app_set_status(L"SFTP 不可用"); return; }
+    s = g.sess[cur];
     if (!g.sftp_cwd[0]) strcpy(g.sftp_cwd, ".");
     GetWindowTextW(g.sftp_path, wpath, 520);
     if (wpath[0]) WideCharToMultiByte(CP_UTF8, 0, wpath, -1, path, sizeof(path), NULL, NULL);
-    else { strncpy(path, g.sftp_cwd, sizeof(path) - 1); path[sizeof(path)-1]=0; }
+    else { strncpy(path, g.sftp_cwd, sizeof(path) - 1); path[sizeof(path) - 1] = 0; }
     strncpy(g.sftp_cwd, path, sizeof(g.sftp_cwd) - 1);
     MultiByteToWideChar(CP_UTF8, 0, g.sftp_cwd, -1, wpath, 520);
     SetWindowTextW(g.sftp_path, wpath);
-    SendMessageW(g.sftp, LB_RESETCONTENT, 0, 0);
-    SendMessageW(g.sftp, LB_ADDSTRING, 0, (LPARAM)L"D\t..");
-    if (yt_sftp_listdir(g.sess[cur]->sftp, g.sftp_cwd, list, sizeof(list)) < 0) {
-        yt_app_set_status(L"SFTP 列表失败");
+    if (InterlockedCompareExchange(&g_sftp_busy, 1, 0) != 0) {
+        InterlockedExchange(&g_sftp_pending, 1);
         return;
     }
-    line = strtok_s(list, "\n", &ctx);
-    while (line) {
-        wchar_t w[512];
-        MultiByteToWideChar(CP_UTF8, 0, line, -1, w, 512);
-        SendMessageW(g.sftp, LB_ADDSTRING, 0, (LPARAM)w);
-        line = strtok_s(NULL, "\n", &ctx);
+    job = (SftpListJob *)calloc(1, sizeof(*job));
+    if (!job) { InterlockedExchange(&g_sftp_busy, 0); return; }
+    yt_session_ref(s);
+    job->s = s;
+    job->hwnd = g.hwnd;
+    strncpy(job->cwd, g.sftp_cwd, sizeof(job->cwd) - 1);
+    SendMessageW(g.sftp, LB_RESETCONTENT, 0, 0);
+    SendMessageW(g.sftp, LB_ADDSTRING, 0, (LPARAM)L"… 加载中");
+    thr = CreateThread(NULL, 0, sftp_list_thr, job, 0, NULL);
+    if (!thr) {
+        yt_session_unref(s);
+        free(job);
+        InterlockedExchange(&g_sftp_busy, 0);
+        yt_app_set_status(L"SFTP 刷新失败");
+        return;
     }
-    refresh_status_bar();
+    CloseHandle(thr);
 }
 
 static void sftp_enter_selected(void)
@@ -584,8 +681,9 @@ void yt_app_close_tab(int idx)
     int i;
     if (idx < 0 || idx >= g.ntabs) return;
     ui_bridge_log("tab close begin idx=%d left=%d", idx, g.ntabs);
-    yt_session_free(g.sess[idx]);
-    free(g.sess[idx]);
+    g.sess[idx]->dead = 1;
+    yt_session_free(g.sess[idx]); /* 内含 unref；Agent 仍持有时延后真正 free */
+    g.sess[idx] = NULL;
     DestroyWindow(g.terms[idx]);
     SendMessageW(g.tab, TCM_DELETEITEM, idx, 0);
     for (i = idx; i < g.ntabs - 1; i++) {
@@ -608,7 +706,7 @@ void yt_app_start_ok(YtSession *s, BOOL ok)
         MultiByteToWideChar(CP_UTF8, 0, s->err[0] ? s->err : "connect failed", -1, w, 300);
         yt_app_set_status(w);
         if (idx >= 0 && idx < g.ntabs && g.sess[idx] == s) yt_app_close_tab(idx);
-        else { yt_session_free(s); free(s); }
+        else yt_session_free(s);
         return;
     }
     if (!s->hwnd_term) yt_app_add_tab(s);
@@ -1531,7 +1629,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             MultiByteToWideChar(CP_UTF8, 0, s->err[0] ? s->err : "SSH failed", -1, w, 300);
             yt_app_set_status(w);
             if (idx >= 0 && idx < g.ntabs && g.sess[idx] == s) yt_app_close_tab(idx);
-            else { yt_session_free(s); free(s); }
+            else yt_session_free(s);
         } else {
             TCITEMW ti = {0};
             ti.mask = TCIF_TEXT;
@@ -1548,6 +1646,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_YT_FWD_EVENT: yt_app_set_status(L"端口转发活动"); return 0;
     case WM_YT_SFTP_REFRESH:
         if (g.sftp_visible) refresh_sftp();
+        return 0;
+    case WM_YT_SFTP_DONE:
+        apply_sftp_list((SftpDoneMsg *)lp);
         return 0;
     case WM_YT_FOCUS_TERM: {
         int idx = (int)wp;

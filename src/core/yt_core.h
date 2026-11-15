@@ -32,7 +32,7 @@
 #define WM_YT_OUTPUT     (WM_APP + 200)
 #define WM_YT_CLOSED     (WM_APP + 201)
 #define WM_YT_TITLE      (WM_APP + 202)
-#define WM_YT_SFTP_DONE  (WM_APP + 203)
+#define WM_YT_SFTP_DONE  (WM_APP + 203) /* wp=ok, lp=char* list (UI free) */
 #define WM_YT_FWD_EVENT  (WM_APP + 204)
 #define WM_YT_SSH_DONE   (WM_APP + 210)
 #define WM_YT_SFTP_REFRESH (WM_APP + 211)
@@ -100,7 +100,12 @@ struct YtSession {
     FILE *log_fp;
     void *sftp; /* SFTP handle when SSH */
     void *ring; /* YtRing* 输出环形缓冲，供 Agent 增量读 */
+    volatile LONG refs; /* Agent/UI 共享引用；归零才 free */
+    volatile LONG dead; /* 已从标签摘除，禁止再写 */
 };
+
+void yt_session_ref(YtSession *s);
+void yt_session_unref(YtSession *s); /* refs==0 时 free(s) */
 
 typedef struct {
     wchar_t root[YT_PATH_MAX];

@@ -78,6 +78,8 @@ static UI_STATE_CB       g_state_cb;
 static void              *g_state_user;
 static char              g_token[64];
 static HANDLE            g_http_thr;
+static HANDLE            g_inst_mutex;
+static volatile LONG     g_listen_ok;
 
 /* ------------------------------------------------------------------ 工具 */
 
@@ -423,8 +425,23 @@ static void ub_execute(const char *id, const char *action, const char *text,
             return;
         }
         if (strstr(cls, "SysListView")) {
-            SendMessageW(h, LVM_SETITEMSTATE, (WPARAM) value, 0);
-            ub_notify_parent(h, LVN_ITEMCHANGED);
+            LVITEMW it;
+            ZeroMemory(&it, sizeof(it));
+            it.stateMask = LVIS_SELECTED | LVIS_FOCUSED;
+            it.state = LVIS_SELECTED | LVIS_FOCUSED;
+            SendMessageW(h, LVM_SETITEMSTATE, (WPARAM)value, (LPARAM)&it);
+            /* 由控件自己发 WM_NOTIFY/LVN_ITEMCHANGED，勿把负 code 塞进 WM_COMMAND */
+            return;
+        }
+        if (strstr(cls, "SysTabControl") || strstr(cls, "TabControl")) {
+            NMHDR hdr;
+            SendMessageW(h, TCM_SETCURSEL, (WPARAM)value, 0);
+            /* TCM_SETCURSEL 不发 TCN_SELCHANGE，需手动通知 */
+            hdr.hwndFrom = h;
+            hdr.idFrom = (UINT_PTR)GetDlgCtrlID(h);
+            hdr.code = TCN_SELCHANGE;
+            SendMessageW(GetParent(h), WM_NOTIFY, (WPARAM)hdr.idFrom, (LPARAM)&hdr);
+            ui_bridge_log("select %s tab=%d", id, value);
             return;
         }
         *code = 400;
@@ -761,8 +778,11 @@ static DWORD WINAPI ub_http_thread(LPVOID param)
     mg_mgr_init(&mgr);
     if (mg_http_listen(&mgr, url, ub_http, NULL) == NULL) {
         ui_bridge_log("bridge: listen failed on %s", url);
+        InterlockedExchange(&g_listen_ok, 0);
+        g_running = 0;
     } else {
         ui_bridge_log("bridge: listening on %s", url);
+        InterlockedExchange(&g_listen_ok, 1);
     }
 
     while (g_running) mg_mgr_poll(&mgr, 50);
@@ -786,51 +806,89 @@ static void ub_gen_token(void)
 {
     unsigned i;
     static const char hex[] = "0123456789abcdef";
-    LARGE_INTEGER q;
-    QueryPerformanceCounter(&q);
-    srand((unsigned)(q.LowPart ^ GetCurrentProcessId()));
-    for (i = 0; i < 32; i++)
-        g_token[i] = hex[rand() % 16];
-    g_token[32] = 0;
+    BYTE rnd[16];
+    HCRYPTPROV prov = 0;
+    if (CryptAcquireContextW(&prov, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT) &&
+        CryptGenRandom(prov, sizeof(rnd), rnd)) {
+        CryptReleaseContext(prov, 0);
+        for (i = 0; i < 16; i++) {
+            g_token[i * 2] = hex[rnd[i] >> 4];
+            g_token[i * 2 + 1] = hex[rnd[i] & 15];
+        }
+        g_token[32] = 0;
+        return;
+    }
+    if (prov) CryptReleaseContext(prov, 0);
+    {
+        LARGE_INTEGER q;
+        QueryPerformanceCounter(&q);
+        srand((unsigned)(q.LowPart ^ GetCurrentProcessId() ^ GetTickCount()));
+        for (i = 0; i < 32; i++)
+            g_token[i] = hex[rand() % 16];
+        g_token[32] = 0;
+    }
+}
+
+static void ub_write_token_file(void)
+{
+    char dir8[MAX_PATH], tokpath[MAX_PATH], cfg[MAX_PATH];
+    FILE *fp;
+    if (!GetModuleFileNameA(NULL, dir8, MAX_PATH)) return;
+    {
+        char *slash = strrchr(dir8, '\\');
+        if (slash) *slash = 0;
+    }
+    snprintf(cfg, sizeof(cfg), "%s\\config", dir8);
+    CreateDirectoryA(cfg, NULL);
+    snprintf(tokpath, sizeof(tokpath), "%s\\ui_bridge.token", cfg);
+    fp = fopen(tokpath, "wb");
+    if (fp) { fputs(g_token, fp); fclose(fp); }
 }
 
 int ui_bridge_start(HWND hwnd_main, int port)
 {
+    DWORD err;
     if (g_inited) return 1;
+    /* N-03：单实例桥接；第二窗口不抢端口、不覆盖 token */
+    g_inst_mutex = CreateMutexW(NULL, FALSE, L"Local\\YTerminal.UIBridge.8086");
+    err = GetLastError();
+    if (!g_inst_mutex) return 0;
+    if (err == ERROR_ALREADY_EXISTS) {
+        ui_bridge_log("bridge: another instance owns the agent port; skip");
+        CloseHandle(g_inst_mutex);
+        g_inst_mutex = NULL;
+        return 0;
+    }
     g_main = hwnd_main;
     InitializeCriticalSection(&g_lock);
     g_done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
-    if (!g_done_event) return 0;
+    if (!g_done_event) {
+        CloseHandle(g_inst_mutex); g_inst_mutex = NULL;
+        return 0;
+    }
     if (!g_token[0]) ub_gen_token();
+    g_listen_ok = 0;
     g_running = 1;
     g_inited = 1;
-    ui_bridge_log("bridge: start on port %d token=%s", port, g_token);
-    {
-        /* 写入 config\\ui_bridge.token，便于本地测试脚本读取 */
-        wchar_t path[MAX_PATH];
-        char dir8[MAX_PATH], tokpath[MAX_PATH];
-        FILE *fp;
-        if (GetModuleFileNameA(NULL, dir8, MAX_PATH)) {
-            char *slash = strrchr(dir8, '\\');
-            if (slash) *slash = 0;
-            snprintf(tokpath, sizeof(tokpath), "%s\\config\\ui_bridge.token", dir8);
-            CreateDirectoryA(dir8, NULL);
-            {
-                char cfg[MAX_PATH];
-                snprintf(cfg, sizeof(cfg), "%s\\config", dir8);
-                CreateDirectoryA(cfg, NULL);
-            }
-            fp = fopen(tokpath, "wb");
-            if (fp) { fputs(g_token, fp); fclose(fp); }
-        }
-        (void)path;
-    }
-
     g_http_thr = CreateThread(NULL, 0, ub_http_thread, (LPVOID) (intptr_t) port, 0, NULL);
     if (!g_http_thr) {
         g_inited = 0;
         g_running = 0;
+        CloseHandle(g_done_event); g_done_event = NULL;
+        DeleteCriticalSection(&g_lock);
+        CloseHandle(g_inst_mutex); g_inst_mutex = NULL;
         return 0;
+    }
+    /* 等监听成功后再写 token，避免绑定失败仍覆盖（N-03） */
+    {
+        int i;
+        for (i = 0; i < 50 && !g_listen_ok && g_running; i++) Sleep(20);
+        if (g_listen_ok) {
+            ub_write_token_file();
+            ui_bridge_log("bridge: start on port %d token=%s", port, g_token);
+        } else {
+            ui_bridge_log("bridge: listen not ready; token file unchanged");
+        }
     }
     return 1;
 }
@@ -840,13 +898,16 @@ void ui_bridge_stop(void)
     if (!g_inited) return;
     g_running = 0;
     if (g_http_thr) {
-        WaitForSingleObject(g_http_thr, 2000);
+        /* N-06：/exec 最长 120s，停止时多等一会再拆 CS */
+        WaitForSingleObject(g_http_thr, 125000);
         CloseHandle(g_http_thr);
         g_http_thr = NULL;
     }
     if (g_done_event) CloseHandle(g_done_event);
     g_done_event = NULL;
     DeleteCriticalSection(&g_lock);
+    if (g_inst_mutex) { CloseHandle(g_inst_mutex); g_inst_mutex = NULL; }
     g_inited = 0;
+    g_listen_ok = 0;
     g_token[0] = 0;
 }

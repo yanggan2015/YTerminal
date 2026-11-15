@@ -47,11 +47,16 @@ static int parse_ch(const char *uri, char *rest, int rcap)
     return id;
 }
 
+/* 返回已 ref 的会话；调用方必须 yt_session_unref（N-04） */
 static YtSession *sess_at(int id)
 {
+    YtSession *s;
     if (!g_hooks.tab_at || !g_hooks.ntabs) return NULL;
     if (id < 0 || id >= g_hooks.ntabs()) return NULL;
-    return g_hooks.tab_at(id);
+    s = g_hooks.tab_at(id);
+    if (!s || s->dead) return NULL;
+    yt_session_ref(s);
+    return s;
 }
 
 static int lock_held_ok(const char *agent_sess)
@@ -141,51 +146,131 @@ static char *help_md(void)
     return _strdup(buf);
 }
 
+/* 跳过 CSI/OSC 等 ANSI，返回下一个可见字符 */
+static const char *skip_ansi(const char *p)
+{
+    while (p && *p == 0x1b) {
+        p++;
+        if (*p == '[') {
+            p++;
+            while (*p && !((*p >= '@' && *p <= 'Z') || (*p >= 'a' && *p <= 'z'))) p++;
+            if (*p) p++;
+        } else if (*p == ']') {
+            p++;
+            while (*p && *p != 0x07 && !(*p == 0x1b && p[1] == '\\')) p++;
+            if (*p == 0x07) p++;
+            else if (*p == 0x1b) p += 2;
+        } else if (*p) p++;
+    }
+    return p;
+}
+
+/* N-01：整行（去 ANSI）等于 mark 才算完成，避开回显/PSReadLine 重绘假阳性 */
+static const char *find_result_mark(const char *buf, const char *mark)
+{
+    const char *line, *p, *e;
+    size_t mlen;
+    if (!buf || !mark || !mark[0]) return NULL;
+    mlen = strlen(mark);
+    line = buf;
+    for (;;) {
+        p = skip_ansi(line);
+        if (!strncmp(p, mark, mlen)) {
+            e = skip_ansi(p + mlen);
+            while (*e == ' ' || *e == '\t') e = skip_ansi(e + 1);
+            if (!*e || *e == '\r' || *e == '\n') return p;
+        }
+        e = line;
+        while (*e && *e != '\n' && *e != '\r') e++;
+        if (!*e) return NULL;
+        while (*e == '\n' || *e == '\r') e++;
+        line = e;
+    }
+}
+
 static int do_exec(YtSession *s, const char *cmd, int timeout_ms, char **out_json)
 {
-    char mark[64], line[1100], chunk[8192];
-    unsigned long long since;
+    char mark[64], line[2048], chunk[24576];
+    unsigned long long since0, ns;
     DWORD t0;
     cJSON *root;
-    int timed = 0, got = 0;
-    size_t clen;
+    int timed = 0, got = 0, m;
+    size_t clen, have = 0;
+    const char *pmark;
     if (!s || !cmd || !cmd[0]) return 400;
-    if (timeout_ms < 200) timeout_ms = 200;
+    if (s->kind != YT_KIND_LOCAL && s->kind != YT_KIND_SSH) {
+        *out_json = _strdup("{\"ok\":false,\"msg\":\"exec only for Local/SSH\"}");
+        return 400;
+    }
+    if (timeout_ms < 500) timeout_ms = 500;
     if (timeout_ms > 120000) timeout_ms = 120000;
     snprintf(mark, sizeof(mark), "YT_END_%08lx", GetTickCount() ^ GetCurrentThreadId());
     clen = strlen(cmd);
     while (clen && (cmd[clen - 1] == '\r' || cmd[clen - 1] == '\n')) clen--;
-    snprintf(line, sizeof(line), "%.*s; echo %s\r", (int)clen, cmd, mark);
-    since = s->ring ? yt_ring_cursor((YtRing *)s->ring) : 0;
+    if (clen + 4 >= sizeof(line)) {
+        *out_json = _strdup("{\"ok\":false,\"msg\":\"cmd too long\"}");
+        return 400;
+    }
+    since0 = s->ring ? yt_ring_cursor((YtRing *)s->ring) : 0;
+    /* 命令与 mark 分行写入，避免长命令折行把 mark 甩到行首造成假成功 */
+    snprintf(line, sizeof(line), "%.*s\r", (int)clen, cmd);
+    yt_session_write(s, line, (int)strlen(line));
+    snprintf(line, sizeof(line), "echo %s\r", mark);
     yt_session_write(s, line, (int)strlen(line));
     t0 = GetTickCount();
     chunk[0] = 0;
+    ns = since0;
     while ((int)(GetTickCount() - t0) < timeout_ms) {
         char piece[4096];
-        unsigned long long ns = since;
-        int m;
+        if (s->dead) break;
         if (s->ring) {
-            m = yt_ring_read_since((YtRing *)s->ring, since, piece, (int)sizeof(piece), &ns);
+            m = yt_ring_read_since((YtRing *)s->ring, ns, piece, (int)sizeof(piece), &ns);
             if (m > 0) {
-                size_t have = strlen(chunk);
                 if (have + (size_t)m < sizeof(chunk) - 1) {
                     memcpy(chunk + have, piece, (size_t)m);
-                    chunk[have + (size_t)m] = 0;
+                    have += (size_t)m;
+                    chunk[have] = 0;
+                } else {
+                    /* 滑动窗口保留尾部，避免长输出丢 mark */
+                    size_t keep = sizeof(chunk) / 2;
+                    if (have > keep) {
+                        memmove(chunk, chunk + have - keep, keep);
+                        have = keep;
+                        chunk[have] = 0;
+                    }
+                    if (have + (size_t)m < sizeof(chunk) - 1) {
+                        memcpy(chunk + have, piece, (size_t)m);
+                        have += (size_t)m;
+                        chunk[have] = 0;
+                    }
                 }
-                since = ns;
-                if (strstr(chunk, mark)) { got = 1; break; }
+                if (find_result_mark(chunk, mark)) { got = 1; break; }
             }
         }
         Sleep(20);
     }
     if (!got) timed = 1;
-    root = cJSON_CreateObject();
-    cJSON_AddBoolToObject(root, "ok", got ? 1 : 0);
-    cJSON_AddBoolToObject(root, "timed_out", timed);
-    cJSON_AddStringToObject(root, "marker", mark);
-    cJSON_AddStringToObject(root, "output", chunk);
-    cJSON_AddNumberToObject(root, "since", (double)since);
-    *out_json = json_dup(root);
+    {
+        char all[24576];
+        unsigned long long end = ns;
+        all[0] = 0;
+        if (s->ring)
+            yt_ring_read_since((YtRing *)s->ring, since0, all, (int)sizeof(all) - 1, &end);
+        pmark = find_result_mark(all, mark);
+        if (pmark) {
+            char *line0 = (char *)pmark;
+            while (line0 > all && line0[-1] != '\n' && line0[-1] != '\r') line0--;
+            *line0 = 0;
+        }
+        root = cJSON_CreateObject();
+        cJSON_AddBoolToObject(root, "ok", got ? 1 : 0);
+        cJSON_AddBoolToObject(root, "timed_out", timed);
+        cJSON_AddStringToObject(root, "marker", mark);
+        cJSON_AddStringToObject(root, "output", all);
+        cJSON_AddNumberToObject(root, "since", (double)since0);
+        cJSON_AddNumberToObject(root, "next", (double)end);
+        *out_json = json_dup(root);
+    }
     return got ? 200 : 504;
 }
 
@@ -230,6 +315,7 @@ int yt_agent_try(const char *method, const char *uri, const char *query,
             cJSON_AddNumberToObject(c, "cursor",
                 s && s->ring ? (double)yt_ring_cursor((YtRing *)s->ring) : 0);
             cJSON_AddItemToArray(arr, c);
+            if (s) yt_session_unref(s);
         }
         *status = 200; *json = json_dup(o); return 1;
     }
@@ -277,20 +363,21 @@ int yt_agent_try(const char *method, const char *uri, const char *query,
     cid = parse_ch(uri, rest, (int)sizeof(rest));
     if (cid >= 0) {
         YtSession *s = sess_at(cid);
+        int st_out = 404;
+        char *js_out = NULL;
         if (!s) { *status = 404; *json = _strdup("{\"ok\":false,\"msg\":\"channel not found\"}"); return 1; }
         if (!lock_held_ok(hdr_sess(body)) && method && strcmp(method, "GET") != 0) {
-            *status = 423; *json = _strdup("{\"ok\":false,\"msg\":\"held by other agent lock\"}"); return 1;
+            st_out = 423; js_out = _strdup("{\"ok\":false,\"msg\":\"held by other agent lock\"}");
+            goto ch_done;
         }
         if (!strcmp(rest, "/log") && (!method || !strcmp(method, "GET"))) {
-            char qsince[32] = "0", out[16384];
+            char out[16384];
             unsigned long long since = 0, ns = 0;
             int m; cJSON *o;
             if (query) {
-                /* since= from query string manually */
                 const char *ps = strstr(query, "since=");
                 if (ps) since = _strtoui64(ps + 6, NULL, 10);
             }
-            (void)qsince;
             m = s->ring ? yt_ring_read_since((YtRing *)s->ring, since, out, (int)sizeof(out), &ns) : 0;
             o = cJSON_CreateObject();
             cJSON_AddBoolToObject(o, "ok", 1);
@@ -299,48 +386,58 @@ int yt_agent_try(const char *method, const char *uri, const char *query,
             cJSON_AddNumberToObject(o, "next", (double)ns);
             cJSON_AddNumberToObject(o, "n", m);
             cJSON_AddStringToObject(o, "data", out);
-            *status = 200; *json = json_dup(o); return 1;
+            st_out = 200; js_out = json_dup(o);
+            goto ch_done;
         }
         if (!strcmp(rest, "/write") && method && !strcmp(method, "POST")) {
             cJSON *j = cJSON_Parse(body ? body : "{}");
             cJSON *t = j ? cJSON_GetObjectItem(j, "text") : NULL;
             if (!cJSON_IsString(t) || !t->valuestring) {
-                cJSON_Delete(j); *status = 400; *json = _strdup("{\"ok\":false,\"msg\":\"text required\"}"); return 1;
+                cJSON_Delete(j); st_out = 400; js_out = _strdup("{\"ok\":false,\"msg\":\"text required\"}");
+                goto ch_done;
             }
-            if (s->locked) { cJSON_Delete(j); *status = 423; *json = _strdup("{\"ok\":false,\"msg\":\"input locked\"}"); return 1; }
+            if (s->locked) { cJSON_Delete(j); st_out = 423; js_out = _strdup("{\"ok\":false,\"msg\":\"input locked\"}"); goto ch_done; }
             yt_session_write(s, t->valuestring, (int)strlen(t->valuestring));
             cJSON_Delete(j);
-            *status = 200; *json = _strdup("{\"ok\":true}"); return 1;
+            st_out = 200; js_out = _strdup("{\"ok\":true}");
+            goto ch_done;
         }
         if (!strcmp(rest, "/keys") && method && !strcmp(method, "POST")) {
             cJSON *j = cJSON_Parse(body ? body : "{}");
             cJSON *t = j ? cJSON_GetObjectItem(j, "spec") : NULL;
             char exp[4096]; int n;
             if (!cJSON_IsString(t) || !t->valuestring) {
-                cJSON_Delete(j); *status = 400; *json = _strdup("{\"ok\":false,\"msg\":\"spec required\"}"); return 1;
+                cJSON_Delete(j); st_out = 400; js_out = _strdup("{\"ok\":false,\"msg\":\"spec required\"}");
+                goto ch_done;
             }
-            if (s->locked) { cJSON_Delete(j); *status = 423; *json = _strdup("{\"ok\":false,\"msg\":\"input locked\"}"); return 1; }
+            if (s->locked) { cJSON_Delete(j); st_out = 423; js_out = _strdup("{\"ok\":false,\"msg\":\"input locked\"}"); goto ch_done; }
             n = yt_keys_expand(t->valuestring, exp, (int)sizeof(exp));
             if (n > 0) yt_session_write(s, exp, n);
             cJSON_Delete(j);
-            *status = 200; *json = _strdup("{\"ok\":true}"); return 1;
+            st_out = 200; js_out = _strdup("{\"ok\":true}");
+            goto ch_done;
         }
         if (!strcmp(rest, "/exec") && method && !strcmp(method, "POST")) {
             cJSON *j = cJSON_Parse(body ? body : "{}");
             cJSON *c = j ? cJSON_GetObjectItem(j, "cmd") : NULL;
             cJSON *tm = j ? cJSON_GetObjectItem(j, "timeout_ms") : NULL;
-            int to = 8000, st;
+            int to = 8000;
             char *out = NULL;
             if (!cJSON_IsString(c) || !c->valuestring) {
-                cJSON_Delete(j); *status = 400; *json = _strdup("{\"ok\":false,\"msg\":\"cmd required\"}"); return 1;
+                cJSON_Delete(j); st_out = 400; js_out = _strdup("{\"ok\":false,\"msg\":\"cmd required\"}");
+                goto ch_done;
             }
             if (cJSON_IsNumber(tm)) to = (int)tm->valuedouble;
-            if (s->locked) { cJSON_Delete(j); *status = 423; *json = _strdup("{\"ok\":false,\"msg\":\"input locked\"}"); return 1; }
-            st = do_exec(s, c->valuestring, to, &out);
+            if (s->locked) { cJSON_Delete(j); st_out = 423; js_out = _strdup("{\"ok\":false,\"msg\":\"input locked\"}"); goto ch_done; }
+            st_out = do_exec(s, c->valuestring, to, &out);
             cJSON_Delete(j);
-            *status = st; *json = out; return 1;
+            js_out = out;
+            goto ch_done;
         }
-        *status = 404; *json = _strdup("{\"ok\":false,\"msg\":\"unknown channel action; GET /api/help\"}"); return 1;
+        st_out = 404; js_out = _strdup("{\"ok\":false,\"msg\":\"unknown channel action; GET /api/help\"}");
+    ch_done:
+        yt_session_unref(s);
+        *status = st_out; *json = js_out; return 1;
     }
     return 0;
 }

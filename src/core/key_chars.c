@@ -48,8 +48,11 @@ int yt_keys_expand(const char *spec, char *out, int cap)
     p = spec;
     while (*p) {
         if (*p == '#' && !strncmp(p, "#delay:", 7)) {
-            int ms = atoi(p + 7);
-            while (*p && *p != '<' && *p != '#' && (unsigned char)*p > 32) p++;
+            /* N-02：必须先推进指针，否则死循环挂死桥接线程 */
+            const char *num = p + 7;
+            int ms = atoi(num);
+            p = num;
+            while (*p >= '0' && *p <= '9') p++;
             if (ms > 0) {
                 if (ms > 5000) ms = 5000;
                 Sleep((DWORD)ms);

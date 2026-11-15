@@ -105,12 +105,19 @@ int yt_sftp_download(void *sftp, const char *remote, const wchar_t *local)
         LeaveCriticalSection(&impl->owner->lock);
         return -1;
     }
-    while ((n = libssh2_sftp_read(h, buf, sizeof(buf))) > 0) fwrite(buf, 1, (size_t)n, fp);
-    fclose(fp);
-    libssh2_sftp_close(h);
-    libssh2_session_set_blocking(sess, 0);
-    LeaveCriticalSection(&impl->owner->lock);
-    return 0;
+    {
+        int ok = 1;
+        while ((n = libssh2_sftp_read(h, buf, sizeof(buf))) > 0) {
+            if (fwrite(buf, 1, (size_t)n, fp) != (size_t)n) { ok = 0; break; }
+        }
+        if (n < 0) ok = 0;
+        fclose(fp);
+        libssh2_sftp_close(h);
+        libssh2_session_set_blocking(sess, 0);
+        LeaveCriticalSection(&impl->owner->lock);
+        if (!ok) { DeleteFileA(path); return -1; }
+        return 0;
+    }
 }
 
 int yt_sftp_upload(void *sftp, const wchar_t *local, const char *remote)
@@ -139,17 +146,22 @@ int yt_sftp_upload(void *sftp, const wchar_t *local, const char *remote)
         LeaveCriticalSection(&impl->owner->lock);
         return -1;
     }
-    while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
-        char *p = buf; size_t left = n;
-        while (left) {
-            ssize_t rc = libssh2_sftp_write(h, p, left);
-            if (rc < 0) break;
-            p += rc; left -= (size_t)rc;
+    {
+        int ok = 1;
+        while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
+            char *p = buf; size_t left = n;
+            while (left) {
+                ssize_t rc = libssh2_sftp_write(h, p, left);
+                if (rc < 0) { ok = 0; break; }
+                p += rc; left -= (size_t)rc;
+            }
+            if (!ok) break;
         }
+        if (ferror(fp)) ok = 0;
+        fclose(fp);
+        libssh2_sftp_close(h);
+        libssh2_session_set_blocking(sess, 0);
+        LeaveCriticalSection(&impl->owner->lock);
+        return ok ? 0 : -1;
     }
-    fclose(fp);
-    libssh2_sftp_close(h);
-    libssh2_session_set_blocking(sess, 0);
-    LeaveCriticalSection(&impl->owner->lock);
-    return 0;
 }

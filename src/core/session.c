@@ -16,6 +16,23 @@ void yt_session_init(YtSession *s)
     wcscpy(s->com, L"COM3");
     s->state = YT_ST_IDLE;
     s->ring = NULL; /* 懒创建，书签 profile 不占 256KB */
+    s->refs = 1;
+    s->dead = 0;
+}
+
+void yt_session_ref(YtSession *s)
+{
+    if (s) InterlockedIncrement(&s->refs);
+}
+
+void yt_session_unref(YtSession *s)
+{
+    if (!s) return;
+    if (InterlockedDecrement(&s->refs) == 0) {
+        if (s->ring) { yt_ring_destroy((YtRing *)s->ring); s->ring = NULL; }
+        DeleteCriticalSection(&s->lock);
+        free(s);
+    }
 }
 
 void yt_session_post_out(YtSession *s, const char *buf, int n)
@@ -36,9 +53,9 @@ void yt_session_post_out(YtSession *s, const char *buf, int n)
 
 void yt_session_write(YtSession *s, const char *data, int len)
 {
-    if (!s || !s->write_fn || s->state != YT_ST_CONNECTED) return;
+    if (!s || s->dead || !s->write_fn || s->state != YT_ST_CONNECTED) return;
     EnterCriticalSection(&s->lock);
-    s->write_fn(s, data, len);
+    if (!s->dead && s->write_fn) s->write_fn(s, data, len);
     LeaveCriticalSection(&s->lock);
 }
 
@@ -73,10 +90,12 @@ void yt_session_close(YtSession *s)
 
 void yt_session_free(YtSession *s)
 {
+    if (!s) return;
+    s->dead = 1;
     yt_session_close(s);
     if (s->log_fp) { fclose(s->log_fp); s->log_fp = NULL; }
-    if (s->ring) { yt_ring_destroy((YtRing *)s->ring); s->ring = NULL; }
-    DeleteCriticalSection(&s->lock);
+    /* ring/CS 在 unref 归零时释放，避免 Agent 持有时 UAF（N-04） */
+    yt_session_unref(s);
 }
 
 void yt_sync_broadcast(YtSession **tabs, int n, int from, const char *data, int len)

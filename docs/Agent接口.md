@@ -16,3 +16,8 @@ curl -H "X-Ui-Token: $TOKEN" -d "{\"session\":\"bot1\",\"ttl_ms\":60000}" http:/
 ```
 
 Skill / Agent：**先读 `/api/help`，再按 operations 调用**，不要写死路径。
+
+## 注意
+
+- `/exec` 仅 Local/SSH：先发命令，安静后再发 `echo MARK`，避免回显假成功。
+- `#delay:N` 解析已修复；单实例持有 8086，第二窗口不覆盖 `ui_bridge.token`。
