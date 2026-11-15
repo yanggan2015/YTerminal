@@ -38,6 +38,19 @@ jobs:
           gcc -std=c11 -O2 -Wall -I src tests/test_vt.c src/vt.c src/util.c -o build/test_vt.exe -lkernel32
           ./build/test_vt.exe
 
+      - name: Unit tests (keymap)
+        shell: pwsh
+        run: |
+          $env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
+          gcc -std=c11 -O2 -Wall -Wextra -I src tests/test_keymap.c src/keymap.c -o build/test_keymap.exe -lkernel32
+          ./build/test_keymap.exe
+
+      - name: UI smoke (non-blocking, needs a desktop)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          ./scripts/ui-smoke.ps1
+
       - name: Unit tests (core)
         shell: pwsh
         run: |

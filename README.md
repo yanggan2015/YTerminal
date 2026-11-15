@@ -83,14 +83,20 @@
 3. **工程修复**：构建补 -DUNICODE/-D_UNICODE（此前 ListBox_AddString 走 ANSI 宏，列表只显示首字符），宽字符 printf 统一 %ls/%hs。
 4. **界面冒烟测试** scripts/ui-smoke.ps1：启动真实 exe，断言主窗口/4 个对话框/SFTP 双栏的控件与列表数据，退出码可直接接 CI。
 5. **新文档** [docs/工具独特亮点.md](docs/工具独特亮点.md)：12 个主流工具逐条「为什么有人用」+ 集成矩阵。
-
-### 新增（v1.3 本轮）
-
-1. **快捷键可自定义**：Ctrl+Shift+M 打开「快捷键设置」，20 个动作都能改键、解绑、恢复默认。录制式改键，冲突当场拦截并指出对手（如「与『粘贴』冲突」），保存后立即生效，keys 落 settings.json。
-2. **快捷键一览读实时键位**：不再是写死的静态表，改完键打开一览看到的就是当前键；底部固定键单独列出。
-3. **键位引擎 keymap.c**：键名解析/格式化（Ctrl+Shift+P、F11、Ctrl+=）、冲突检测、序列化，纯逻辑无 UI 依赖，32 条单测覆盖。
 6. **窗口几何记忆**：退出时记录窗口位置尺寸，下次启动原样恢复（越界自动回退）。
 7. **纯逻辑层 + 单测**：`core.c` 抽出模糊匹配、隧道解析、高亮规则、宽字符截断，配 27 条断言。
+
+### 新增（v1.3）
+
+1. **快捷键可自定义**：`Ctrl+Shift+M` 打开「快捷键设置」，20 个动作都能改键、解绑、恢复默认。录制式改键，冲突当场拦截并指出对手（如「与『粘贴』冲突」），保存后立即生效，`keys` 落 `settings.json`。
+2. **快捷键一览读实时键位**：不再是写死的静态表，改完键打开一览看到的就是当前键；底部固定键单独列出。
+3. **键位引擎** `keymap.c`：键名解析/格式化（`Ctrl+Shift+P`、`F11`、`Ctrl+=`）、冲突检测、序列化，纯逻辑无 UI 依赖，32 条单测覆盖。
+
+### 新增（v1.4）
+
+1. **命令历史与补全**：每个标签独立记录最近 40 条输入，`↑`/`↓` 整行召回，`Tab` 在历史前缀唯一时补全，其他情况原样交给 shell；在 vim/less 等全屏程序里不拦截方向键。
+2. **快捷键配置导入/导出**：快捷键设置里多出「导入 / 导出」，导出 `YTerminal-keys.txt` 可带到另一台机器，导入后预览、点保存才生效。
+3. **CI 接了冒烟**：`build.yml` 跑 VT/core/keymap 三套单测，并执行 `ui-smoke.ps1`（无桌面的托管 runner 上不阻塞合并）。
 
 界面预览：
 
@@ -138,7 +144,7 @@ gcc -std=c11 -O2 -Wall -Wextra -I src tests\test_core.c src\core.c src\util.c -o
 .\build\test_core.exe
 ```
 
-当前：**VT 内核 46 项 + 纯逻辑层 27 项，全部通过，零告警**。
+当前：**VT 内核 46 项 + 纯逻辑层 45 项 + 键位 32 项（共 123 项），全部通过，零告警**。
 
 ### 界面自检（无侵入截图）
 
@@ -231,7 +237,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\ui-shot.ps1 -SessionDialog
 | `src/util.c/.h` | UTF-8/UTF-16 转换、编码转换、路径、DPAPI |
 | `src/askpass.c` | 独立的 `SSH_ASKPASS` 小工具 |
 | `tests/test_vt.c` | VT 内核单元测试（46 项） |
-| `tests/test_core.c` | 纯逻辑层单元测试（27 项） |
+| `tests/test_core.c` | 纯逻辑层单元测试（45 项，含输入历史 18 项） |
+| `tests/test_keymap.c` | 键位引擎单元测试（32 项） |
 | `scripts/ui-shot.ps1` | 无侵入界面截图（PrintWindow，支持 `-Command <id>` 抓对话框） |
 
 关键约定：

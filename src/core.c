@@ -214,3 +214,67 @@ void yt_tab_shorten(const wchar_t *in, int max_cells, wchar_t *out, int cch) {
     }
     out[k] = 0;
 }
+
+/* ================================================================== */
+/* 输入历史                                                            */
+/* ================================================================== */
+void yt_hist_init(YtHist *h) {
+    if (!h) return;
+    memset(h, 0, sizeof(*h));
+    h->nav = -1;
+}
+
+int yt_utf8_cells(const char *s) {
+    int n = 0;
+    if (!s) return 0;
+    for (; *s; s++)
+        if (((unsigned char)*s & 0xC0) != 0x80) n++;
+    return n;
+}
+
+int yt_hist_add(YtHist *h, const char *line) {
+    if (!h) return 0;
+    h->nav = -1;
+    if (!line) return 0;
+    while (*line == ' ') line++;
+    if (!*line) return 0;
+    if (h->n > 0 && strcmp(h->items[h->n - 1], line) == 0) return 0;
+    if (h->n == YT_HIST_MAX) {
+        memmove(h->items[0], h->items[1], sizeof(h->items[0]) * (YT_HIST_MAX - 1));
+        h->n = YT_HIST_MAX - 1;
+    }
+    strncpy(h->items[h->n], line, YT_HIST_LEN - 1);
+    h->items[h->n][YT_HIST_LEN - 1] = 0;
+    h->n++;
+    return 1;
+}
+
+const char *yt_hist_prev(YtHist *h) {
+    if (!h || h->n == 0) return NULL;
+    if (h->nav < 0) h->nav = h->n - 1;
+    else if (h->nav > 0) h->nav--;
+    else return NULL;
+    return h->items[h->nav];
+}
+
+const char *yt_hist_next(YtHist *h) {
+    if (!h || h->n == 0 || h->nav < 0) return NULL;
+    if (h->nav >= h->n - 1) { h->nav = -1; return ""; }
+    h->nav++;
+    return h->items[h->nav];
+}
+
+int yt_hist_unique(const YtHist *h, const char *prefix, char *out, int cap) {
+    if (!h || !prefix || !*prefix || !out || cap <= 1) return 0;
+    const char *hit = NULL;
+    int plen = (int)strlen(prefix);
+    for (int i = 0; i < h->n; i++) {
+        if (strncmp(h->items[i], prefix, (size_t)plen) != 0) continue;
+        if (!hit) hit = h->items[i];
+        else if (strcmp(hit, h->items[i]) != 0) return 0;   /* 多个不同候选 */
+    }
+    if (!hit || (int)strlen(hit) <= plen) return 0;
+    strncpy(out, hit, (size_t)cap - 1);
+    out[cap - 1] = 0;
+    return 1;
+}

@@ -54,6 +54,11 @@ typedef struct TermView {
     char trig_buf[1024];
     DWORD trig_last[8];
 
+    /* 输入行 + 历史（↑↓ 召回，Tab 补全） */
+    YtHist hist;
+    char   line[YT_HIST_LEN];
+    int    line_len;
+
     /* 多字节编码分包残留 */
     u8  enc_pend[4];
     int enc_pend_len;
@@ -664,6 +669,38 @@ static void tv_send(TermView *tv, const void *data, size_t len) {
     InvalidateRect(tv->hwnd, NULL, FALSE);
 }
 
+/* 用历史文本替换当前输入行：先按码点发退格，再发新文本 */
+static void tv_line_replace(TermView *tv, const char *text) {
+    int n = yt_utf8_cells(tv->line);
+    char bs[16];
+    memset(bs, 0x7f, sizeof(bs));
+    while (n > 0) {
+        int k = n > (int)sizeof(bs) ? (int)sizeof(bs) : n;
+        tv_send(tv, bs, (size_t)k);
+        n -= k;
+    }
+    if (text && *text) tv_send(tv, text, strlen(text));
+    strncpy(tv->line, text ? text : "", YT_HIST_LEN - 1);
+    tv->line[YT_HIST_LEN - 1] = 0;
+    tv->line_len = (int)strlen(tv->line);
+}
+
+static void tv_line_push(TermView *tv, const char *u8, size_t n) {
+    if (!u8 || !n) return;
+    if (tv->line_len + (int)n >= YT_HIST_LEN) return;
+    memcpy(tv->line + tv->line_len, u8, n);
+    tv->line_len += (int)n;
+    tv->line[tv->line_len] = 0;
+}
+
+static void tv_line_pop(TermView *tv) {
+    if (tv->line_len <= 0) return;
+    tv->line_len--;
+    while (tv->line_len > 0 && ((unsigned char)tv->line[tv->line_len] & 0xC0) == 0x80)
+        tv->line_len--;
+    tv->line[tv->line_len] = 0;
+}
+
 static size_t mod_seq(char *out, const char *base, int mod) {
     /* base 形如 "\x1b[A"，mod 1=Shift 2=Alt 3=Shift+Alt 5=Ctrl ... */
     if (!mod) { strcpy(out, base); return strlen(base); }
@@ -1106,6 +1143,7 @@ static LRESULT CALLBACK TermProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         SendMessageW(tv->search, WM_SETFONT, (WPARAM)g_app.f_ui, TRUE);
         SendMessageW(tv->search, EM_SETCUEBANNER, TRUE, (LPARAM)L"输入查找内容，回车下一个 / Shift+回车上一个");
         g_search_old_proc = (WNDPROC)SetWindowLongPtrW(tv->search, GWLP_WNDPROC, (LONG_PTR)SearchEditProc);
+        yt_hist_init(&tv->hist);
         SetTimer(h, TIMER_BLINK, 530, NULL);
         DragAcceptFiles(h, TRUE);
         return 0;
@@ -1319,6 +1357,25 @@ static LRESULT CALLBACK TermProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
                 return 0;
             }
         }
+        /* ↑↓ 召回历史：仅在没有 Ctrl/Alt 时拦截；历史为空则交回 shell */
+        if (!ctrl && !alt && !vt_is_alt(tv->vt) && (wp == VK_UP || wp == VK_DOWN)) {
+            const char *hl = (wp == VK_UP) ? yt_hist_prev(&tv->hist) : yt_hist_next(&tv->hist);
+            if (hl) { tv_line_replace(tv, hl); return 0; }
+        }
+        /* Tab 补全：输入行非空且历史里前缀唯一时补全，否则交回 shell 做路径补全 */
+        if (!ctrl && !alt && !shift && !vt_is_alt(tv->vt) && wp == VK_TAB && tv->line_len > 0) {
+            char full[YT_HIST_LEN];
+            if (yt_hist_unique(&tv->hist, tv->line, full, (int)sizeof(full))) {
+                tv_line_replace(tv, full);
+                return 0;
+            }
+        }
+        /* 回车：记入历史并清空当前行 */
+        if (wp == VK_RETURN && !ctrl && !alt) {
+            yt_hist_add(&tv->hist, tv->line);
+            tv->line_len = 0;
+            tv->line[0] = 0;
+        }
         if (alt && !ctrl) {
             char suffix[4] = { 0 };
             if ((wp >= 'A' && wp <= 'Z') || (wp >= '0' && wp <= '9')) {
@@ -1332,6 +1389,7 @@ static LRESULT CALLBACK TermProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             }
             (void)suffix;
         }
+        if (ctrl && wp == 'C') { tv->line_len = 0; tv->line[0] = 0; }
         if (wp == VK_TAB && shift) { tv_send(tv, "\x1b[Z", 3); return 0; }
         char buf[24];
         size_t n = key_seq(tv, wp, ctrl, alt, shift, buf);
@@ -1350,10 +1408,11 @@ static LRESULT CALLBACK TermProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         if (ch == 0x09) { tv_send(tv, "\t", 1); return 0; }
-        if (ch == 0x08) { tv_send(tv, "\x7f", 1); return 0; }
+        if (ch == 0x08) { tv_send(tv, "\x7f", 1); tv_line_pop(tv); return 0; }
         char u8buf[8];
         size_t n = utf8_encode_one(ch, u8buf);
         tv_send(tv, u8buf, n);
+        tv_line_push(tv, u8buf, n);
         return 0;
     }
     case WM_IME_CHAR:

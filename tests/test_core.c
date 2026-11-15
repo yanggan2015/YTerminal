@@ -70,6 +70,43 @@ int main(void) {
     yt_tab_shorten(NULL, 10, out, 64);
     check("shorten null safe", out[0] == 0);
 
+    /* ---- 输入历史 ---- */
+    {
+        YtHist h;
+        yt_hist_init(&h);
+        check("hist empty prev", yt_hist_prev(&h) == NULL);
+        check("hist empty next", yt_hist_next(&h) == NULL);
+        check("hist add", yt_hist_add(&h, "ls -la") == 1);
+        check("hist prev newest", strcmp(yt_hist_prev(&h), "ls -la") == 0);
+        check("hist prev oldest stops", yt_hist_prev(&h) == NULL);
+        const char *nx = yt_hist_next(&h);
+        check("hist next back to empty", nx && *nx == 0);
+        check("hist nav reset", h.nav == -1);
+        check("hist dup skipped", yt_hist_add(&h, "ls -la") == 0);
+        check("hist blank skipped", yt_hist_add(&h, "   ") == 0);
+        yt_hist_add(&h, "git commit -m \"msg\"");
+        yt_hist_add(&h, "git checkout main");
+        char full[YT_HIST_LEN];
+        check("hist complete unique", yt_hist_unique(&h, "git che", full, sizeof(full)) == 1
+              && strcmp(full, "git checkout main") == 0);
+        check("hist complete ambiguous", yt_hist_unique(&h, "git c", full, sizeof(full)) == 0);
+        check("hist complete already full", yt_hist_unique(&h, "git checkout main", full, sizeof(full)) == 0);
+        check("hist complete no match", yt_hist_unique(&h, "zzz", full, sizeof(full)) == 0);
+    }
+    check("utf8 cells cjk", yt_utf8_cells("中文abc") == 5);
+    check("utf8 cells empty", yt_utf8_cells("") == 0);
+    {
+        YtHist h;
+        yt_hist_init(&h);
+        for (int i = 0; i < YT_HIST_MAX + 5; i++) {
+            char b[32];
+            _snprintf(b, sizeof(b), "cmd-%02d", i);
+            yt_hist_add(&h, b);
+        }
+        check("hist cap n", h.n == YT_HIST_MAX);
+        check("hist cap drops oldest", strcmp(h.items[0], "cmd-05") == 0);
+        check("hist cap newest", strcmp(h.items[h.n - 1], "cmd-44") == 0);
+    }
     printf("\nResult: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

@@ -134,5 +134,7 @@
 #define IDC_KM_SAVE        4205
 #define IDC_KM_CANCEL      4206
 #define IDC_KM_DEFAULTALL  4207
+#define IDC_KM_IMPORT      4208
+#define IDC_KM_EXPORT      4209
 
 #endif

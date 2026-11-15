@@ -34,4 +34,20 @@ int yt_rules_parse(const char *src, YtRule *out, int max);
 /* 按终端单元格宽度截断（宽字符占 2 格，超长补省略号） */
 void yt_tab_shorten(const wchar_t *in, int max_cells, wchar_t *out, int cch);
 
+
+/* 输入历史（每个终端一份，纯逻辑，便于单测） */
+#define YT_HIST_MAX 40
+#define YT_HIST_LEN 240
+typedef struct {
+    char items[YT_HIST_MAX][YT_HIST_LEN];
+    int  n;
+    int  nav;      /* -1 = 正在编辑当前行；否则为历史下标 */
+} YtHist;
+
+void        yt_hist_init(YtHist *h);
+int         yt_hist_add(YtHist *h, const char *line);   /* 1=已加入，0=空行/与上一条重复 */
+const char *yt_hist_prev(YtHist *h);                    /* NULL=没有更早的 */
+const char *yt_hist_next(YtHist *h);                    /* 返回 "" 表示回到当前空行，NULL=未在浏览 */
+int         yt_hist_unique(const YtHist *h, const char *prefix, char *out, int cap);
+int         yt_utf8_cells(const char *s);               /* UTF-8 码点数（近似显示格数） */
 #endif

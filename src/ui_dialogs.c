@@ -1290,6 +1290,8 @@ static LRESULT CALLBACK KmProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 
         mk_button(h, IDC_KM_CHANGE, L"修改", app_dpi(24), app_dpi(452), app_dpi(88), app_dpi(32), 0);
         mk_button(h, IDC_KM_DEFAULTALL, L"全部默认", app_dpi(120), app_dpi(452), app_dpi(96), app_dpi(32), 0);
+        mk_button(h, IDC_KM_IMPORT, L"导入", app_dpi(228), app_dpi(452), app_dpi(80), app_dpi(32), 0);
+        mk_button(h, IDC_KM_EXPORT, L"导出", app_dpi(316), app_dpi(452), app_dpi(80), app_dpi(32), 0);
         mk_button(h, IDC_KM_SAVE, L"保存", app_dpi(408), app_dpi(452), app_dpi(96), app_dpi(32), 1);
         mk_button(h, IDC_KM_CANCEL, L"取消", app_dpi(512), app_dpi(452), app_dpi(96), app_dpi(32), 0);
 
@@ -1306,6 +1308,49 @@ static LRESULT CALLBACK KmProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             yt_key_reset_all();
             km_refresh(h);
             km_tip(h, L"已恢复全部默认（仍可继续修改，点「保存」才写入）", 0);
+        } else if (id == IDC_KM_IMPORT) {
+            wchar_t path[MAX_PATH] = L"";
+            OPENFILENAMEW ofn;
+            ZeroMemory(&ofn, sizeof(ofn));
+            ofn.lStructSize = sizeof(ofn);
+            ofn.hwndOwner = h;
+            ofn.lpstrFilter = L"快捷键配置 (*.txt)\0*.txt\0所有文件\0*.*\0\0";
+            ofn.lpstrFile = path;
+            ofn.nMaxFile = MAX_PATH;
+            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+            if (GetOpenFileNameW(&ofn)) {
+                size_t len = 0;
+                char *data = yt_read_file(path, &len);
+                if (!data) {
+                    km_tip(h, L"读取失败：文件无法打开", 1);
+                } else {
+                    int n = yt_key_load(data);
+                    free(data);
+                    km_refresh(h);
+                    wchar_t msg2[160];
+                    _snwprintf(msg2, 160, L"已导入 %d 项（点「保存」写入配置）", n);
+                    msg2[159] = 0;
+                    km_tip(h, msg2, 0);
+                }
+            }
+        } else if (id == IDC_KM_EXPORT) {
+            wchar_t path[MAX_PATH] = L"YTerminal-keys.txt";
+            OPENFILENAMEW ofn;
+            ZeroMemory(&ofn, sizeof(ofn));
+            ofn.lStructSize = sizeof(ofn);
+            ofn.hwndOwner = h;
+            ofn.lpstrFilter = L"快捷键配置 (*.txt)\0*.txt\0所有文件\0*.*\0\0";
+            ofn.lpstrFile = path;
+            ofn.nMaxFile = MAX_PATH;
+            ofn.lpstrDefExt = L"txt";
+            ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+            if (GetSaveFileNameW(&ofn)) {
+                const char *dump = yt_key_dump();
+                if (yt_write_file(path, dump, strlen(dump)))
+                    km_tip(h, L"已导出当前键位，可在另一台机器「导入」", 0);
+                else
+                    km_tip(h, L"写入失败，请换一个目录", 1);
+            }
         } else if (id == IDC_KM_SAVE) {
             HWND list = GetDlgItem(h, IDC_KM_LIST);
             kd->sel = (int)SendMessageW(list, LB_GETCURSEL, 0, 0);

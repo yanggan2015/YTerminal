@@ -97,6 +97,9 @@ if ($km -ne [IntPtr]::Zero) {
     $k0 = if ($kn -gt 0) { [YSmoke]::Item($kl, 0) } else { "" }
     Check "首项是复制选区" ($k0 -match "复制选区") ("首项=[" + $k0 + "]")
     Check "修改/保存按钮存在" (([YSmoke]::ById($km, 4203) -ne [IntPtr]::Zero) -and ([YSmoke]::ById($km, 4205) -ne [IntPtr]::Zero)) ""
+    Check "导入/导出按钮存在" (([YSmoke]::ById($km, 4208) -ne [IntPtr]::Zero) -and ([YSmoke]::ById($km, 4209) -ne [IntPtr]::Zero)) ""
+    $ks = [YSmoke]::Title([YSmoke]::ById($km, 4202))
+    Check "快捷键提示文案" ($ks.Length -gt 0) ("提示=[" + $ks + "]")
     [YSmoke]::PostMessageW($km, 0x0010, [IntPtr]0, [IntPtr]0) | Out-Null
 }
 # SFTP 双栏：验证窗口、两个列表、本地列表内容（可捕捉 UNICODE 宏错配）
